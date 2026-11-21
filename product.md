@@ -7,9 +7,22 @@ An AI-powered mobile sandbox platform where players can create, publish, and pla
 
 ## 2. Core Pillars
 * **Infinite Scopes:** Seamlessly shift between Macro-scale (World/Country maps), Meso-scale (City streets/neighborhoods), and Micro-scale (Single building/office).
-* **Zero-Latency Gameplay:** Powered by local-first storage (MMKV + SQLite) and on-device AI inference so player choices happen at the speed of thought.
+* **Zero-Latency Gameplay:** Powered by fast local caching (`MMKV` + `expo-sqlite`) and lightweight cloud AI turns on our remote Bun.js server so the app stays tiny and snappy.
 * **Living Visuals:** Dynamic vector maps and custom Skia shaders combined with Nano Banana character portraits that react to the game state.
 * **Community Marketplace:** Creators build "World Seeds" (rules, starting lore, visual style) and publish them for others to play, fork, and rate.
+
+---
+
+## 2.5 Brand Identity & Color Palette (Yeti Theme)
+Sampled directly from the Anvil Yeti mascot (`assets/yeti/android-icon-background.png`) to keep the UI crisp, playful, and high-contrast:
+
+| Role | Name | Hex | Usage |
+| :--- | :--- | :--- | :--- |
+| **Primary Brand Blue** | Yeti Blue | `#40A7FC` | Active highlights, interactive accents, links, and badges. |
+| **Brand Tint / Splash** | Periwinkle Ice | `#C0CEF5` | Splash screen background, adaptive icon backdrop, soft accent containers. |
+| **Primary Dark / Ink** | Obsidian Black | `#000000` (`#0A0A0A` UI) | Headlines, primary pill CTAs, icons, and Yeti linework contrast. |
+| **Primary Light Surface** | Pure White | `#FFFFFF` | Main screen backgrounds, cards, and inverse button labels. |
+| **Secondary Neutral** | Frost Gray | `#E2E2E4` | Subtle borders, inactive indicators, and secondary card surfaces. |
 
 ---
 
@@ -33,9 +46,9 @@ Waiting 60 minutes for a world to compile will hurt creator retention. Instead, 
    * If Macro/Meso scale, vector map coordinates and Skia color palettes are selected instantly (0 seconds generation time).
 2. **Stage 2: Playable State (< 45 Seconds)**
    * Creator/Player can immediately jump into the game.
-   * On-device AI handles immediate narrative turns.
+   * Remote Bun.js server handles fast cloud AI narrative turns over compact JSON payloads.
 3. **Stage 3: Asynchronous Background Baking (5–30 Minutes in Background)**
-   * While the creator tests their world or after they hit "Publish", a Bun.js background worker queue generates secondary NPCs, event cards, and regional variations, pushing them silently to the device via **Firebase Realtime Database**.
+   * While the creator tests their world or after they hit "Publish", a Bun.js background worker queue generates secondary NPCs, event cards, and regional variations, streaming them silently to the device over **WebSockets / SSE**.
 
 ---
 

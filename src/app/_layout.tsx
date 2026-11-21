@@ -1,18 +1,50 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
-import { useColorScheme } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { useEffect } from 'react';
+import { StyleSheet, useColorScheme } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import { AnimatedSplashOverlay } from '@/components/animated-icon';
-import AppTabs from '@/components/app-tabs';
+import { useOnboardingStatus } from '@/lib/storage';
 
 SplashScreen.preventAutoHideAsync();
 
-export default function TabLayout() {
+SplashScreen.setOptions({
+  duration: 600,
+  fade: true,
+});
+
+export default function RootLayout() {
   const colorScheme = useColorScheme();
+  const { hasCompletedOnboarding } = useOnboardingStatus();
+
+  useEffect(() => {
+    SplashScreen.hide();
+  }, []);
+
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-    </ThemeProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <StatusBar style={hasCompletedOnboarding ? 'auto' : 'dark'} />
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Protected guard={!hasCompletedOnboarding}>
+            <Stack.Screen
+              name="onboarding"
+              options={{ animation: 'fade' }}
+            />
+          </Stack.Protected>
+
+          <Stack.Protected guard={hasCompletedOnboarding}>
+            <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+          </Stack.Protected>
+        </Stack>
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});
