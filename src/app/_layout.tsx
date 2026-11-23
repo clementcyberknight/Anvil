@@ -25,8 +25,12 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <StatusBar style={hasCompletedOnboarding ? 'auto' : 'dark'} />
-        <Stack screenOptions={{ headerShown: false }}>
+        <StatusBar style="dark" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            navigationBarHidden: true,
+          }}>
           <Stack.Protected guard={!hasCompletedOnboarding}>
             <Stack.Screen
               name="onboarding"
@@ -35,7 +39,7 @@ export default function RootLayout() {
           </Stack.Protected>
 
           <Stack.Protected guard={hasCompletedOnboarding}>
-            <Stack.Screen name="(tabs)" options={{ animation: 'fade' }} />
+            <Stack.Screen name="index" options={{ animation: 'fade' }} />
           </Stack.Protected>
         </Stack>
       </ThemeProvider>

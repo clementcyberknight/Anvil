@@ -1,4 +1,10 @@
-This is an Expo/React Native mobile application (**Anvil**). Prioritize mobile-first patterns, 60fps performance, low-network resilience, strict TypeScript, and cross-platform compatibility.
+This is an Expo/React Native mobile application (**Anvil** — a multiplayer Yeti town-building, resource-management, and player-driven economy game on a single evolving map with an AI Mayor). Prioritize mobile-first patterns, 60fps performance, low-network resilience, strict TypeScript, and cross-platform compatibility.
+
+## Game Domain & Architecture Context
+
+- **Single-Map Town Gameplay:** Every player plays directly as the main Yeti character in their own town on **one map** (Village, Forest, Frozen Lake, Mountains, Caves) across 5 core loops: **Explore, Gather, Produce, Trade, and Expand**.
+- **Cloud-Only AI Mayor & Economy (Remote Bun.js Server):** All AI generation runs on the remote **Bun.js** server (never on-device). The **AI Mayor** controls business taxation into the Town Treasury, dynamic resource/economy events, and whether to cushion/subsidize **2x Winter price spikes** using the Town Treasury or let citizens absorb the cost.
+- **Brand Palette (Yeti Theme):** Yeti Blue `#40A7FC`, Periwinkle Ice `#C0CEF5` (splash/icon/primary soft CTA), Obsidian Black `#000000` (`#0A0A0A` UI), Pure White `#FFFFFF`, Frost Gray `#E2E2E4`.
 
 ## Expo has changed — do not trust your training data
 
@@ -15,6 +21,7 @@ Always use **Bun** (`bun` / `bunx`) as the runtime and command runner. Do not us
 ```bash
 bunx expo install <package>  # ALWAYS use instead of bun add for Expo/RN packages — resolves SDK-compatible versions
 bunx expo start              # start the dev server
+bunx expo run:android        # build and install native Android app on local emulator
 bunx oxlint                  # primary linter (Oxlint + anti-slop rules)
 bunx expo lint               # Expo lint checks
 bunx tsc --noEmit            # strict typecheck
@@ -30,10 +37,10 @@ Always use these exact libraries for their designated roles — never substitute
 
 | Responsibility                   | Required Library          | Notes                                                                                      |
 | :------------------------------- | :------------------------ | :----------------------------------------------------------------------------------------- |
-| **Image & binary asset storage** | `expo-file-system`        | Local WebP sprites, and downloaded `.worldpack` files.                                     |
-| **Text / hot key-value storage** | `react-native-mmkv`       | Synchronous JSI reads/writes for active stats, UI flags, and text cache.                   |
-| **Session storage**              | `react-native-mmkv`       | Auth/session metadata and active gameplay session state.                                   |
-| **Story, lore & map storage**    | `expo-sqlite`             | Relational storage for stories, timeline logs, NPCs, saves, and TopoJSON map regions.      |
+| **Image & binary asset storage** | `expo-file-system`        | Local WebP sprites, building tiers, and seasonal map assets.                               |
+| **Text / hot key-value storage** | `react-native-mmkv`       | Synchronous JSI/Nitro reads/writes for live inventory counters, season/tax flags, UI cache.|
+| **Session storage**              | `react-native-mmkv`       | Auth/session metadata, onboarding state, and active gameplay session state.                |
+| **Story, town & map storage**    | `expo-sqlite`             | Relational storage for single-map nodes, buildings, NPC citizen requests, and market cache.|
 | **Animations & transitions**     | `react-native-reanimated` | UI-thread worklet animations and transitions (paired with `react-native-gesture-handler`). |
 
 ## Strict TypeScript & Anti-Slop Performance Rules (Oxlint)
@@ -56,13 +63,8 @@ We use **Oxlint** with **anti-slop** rules (`oxlint.config.ts`). **Never cheat T
 - Import `Link`, `router`, and `useLocalSearchParams` from `expo-router`.
 - Docs: https://docs.expo.dev/router/introduction.md
 
-## Building with EAS
+## Building & Native Configuration
 
-Use EAS to build, sign, and submit the app in the cloud (`eas build`, `eas submit`) and to ship over-the-air updates (`eas update`) — no local Xcode or Android Studio required. Always run EAS CLI as `bunx eas-cli <command>`.
-Docs: https://docs.expo.dev/eas/index.md
-
-## Rules
-
-- If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
-- Expo Go only includes its bundled native modules. After adding a library with native code (such as `react-native-mmkv`, `expo-sqlite`, or `@shopify/react-native-skia`), the app needs a development build: `bunx expo run:ios|android` locally, or `bunx eas-cli build --profile development`.
+- Configure native behavior via `app.json` and config plugins (such as `./plugins/with-short-cmake-paths` which prevents Windows 260-character CMake path errors).
+- Expo Go only includes its bundled native modules. Because this project uses `react-native-mmkv` (Nitro) and native splash/icon configuration, run it on your local Android Studio emulator with `bunx expo run:android` (or `bunx eas-cli build --profile development` for cloud builds).
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md

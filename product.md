@@ -1,65 +1,60 @@
-# Product Specification: Project "What If" (Infinite World Sandbox)
+# Product Specification: Anvil (Yeti Town & Economy Sandbox)
 
 ## 1. Product Vision
-An AI-powered mobile sandbox platform where players can create, publish, and play infinite "What If" alternate reality simulations. From grand geopolitical strategy ("What if Rome never fell?") to hyper-local roleplay ("College dropout building a tech startup in a garage"), the engine adapts its UI, maps, and narrative dynamically.
+A mobile multiplayer town-building, resource-management, and player-driven economy game where every player plays directly as the main Yeti character in their own town on **one living, evolving map**. Players explore biomes, gather raw materials, produce crafted goods, fulfill NPC citizen requests, trade orders with other players' towns on a shared marketplace, and navigate a dynamic **Summer/Winter seasonal economy** governed by an **AI Mayor** that controls town taxes, the Town Treasury, economic events, and Winter price subsidies.
 
 ---
 
-## 2. Core Pillars
-* **Infinite Scopes:** Seamlessly shift between Macro-scale (World/Country maps), Meso-scale (City streets/neighborhoods), and Micro-scale (Single building/office).
-* **Zero-Latency Gameplay:** Powered by fast local caching (`MMKV` + `expo-sqlite`) and lightweight cloud AI turns on our remote Bun.js server so the app stays tiny and snappy.
-* **Living Visuals:** Dynamic vector maps and custom Skia shaders combined with Nano Banana character portraits that react to the game state.
-* **Community Marketplace:** Creators build "World Seeds" (rules, starting lore, visual style) and publish them for others to play, fork, and rate.
+## 2. Core Gameplay Pillars (The 5 Player Actions)
+
+1. **Explore**
+   * Roam a single cohesive map featuring the **Village, Forest, Frozen Lake, Mountains, and Caves**.
+   * Discover seasonal resource nodes, named NPC citizens, quests, and hidden locations (such as Winter-only frozen lake paths and ice caverns).
+2. **Gather**
+   * Collect **wood, stone, berries, ores, fish, herbs**, and seasonal materials.
+   * Use crafted tools and interact directly with the environment with crisp animations and haptics.
+3. **Produce**
+   * Plant crops, raise animals, process raw materials, cook food, craft furniture, and manufacture products across your town's workshops.
+4. **Trade (Player-Driven Marketplace)**
+   * Post buy/sell trade orders on the shared **Inter-Town Marketplace** and fulfill orders posted by players from other towns to acquire scarce resources and grow your businesses.
+5. **Expand**
+   * Upgrade workshops and buildings in place on the single map, unlock deeper biome zones, improve relationships with occupation NPCs, earn XP, and expand your settlement.
 
 ---
 
-## 2.5 Brand Identity & Color Palette (Yeti Theme)
-Sampled directly from the Anvil Yeti mascot (`assets/yeti/android-icon-background.png`) to keep the UI crisp, playful, and high-contrast:
+## 3. Town Life, Seasonal Economy & The AI Mayor
+
+### A. Living Town & Occupations
+* Your town is home to NPC citizens with distinct **occupations** (Blacksmith, Chef, Carpenter, Angler, Miner, Herbalist) who actively request resources from you.
+* Fulfilling citizen requests levels up their workshop efficiency, increases town prosperity, and grows the local tax base.
+
+### B. The AI Mayor (Taxes, Treasury & Events)
+* **AI-Controlled Tax Policy & Treasury:** The **AI Mayor** (powered by our remote Bun.js Cloud AI) sets and adjusts tax rates on Yeti businesses, collects tax revenue into the **Town Treasury**, and triggers dynamic town events that increase or reduce resource yields and demand.
+* **Summer vs. Winter Cycle:**
+  * **Summer (Growth & Stockpiling):** Standard 1x baseline prices; crops and foraging thrive. Players expand production, trade surpluses, and build reserves while the AI Mayor grows the Town Treasury.
+  * **Winter (2x Scarcity & AI Subsidy Decision):** During Winter, resource and marketplace prices can surge up to **2x** depending on supply and demand. The **AI Mayor** evaluates the Town Treasury and town state to decide whether to **cushion/subsidize prices using the Town Treasury** or **let citizens and businesses absorb the 2x cost**—creating high-stakes trading and stockpiling opportunities across the multiplayer marketplace.
+
+---
+
+## 4. Core Loops & Retention (Single-Map Depth)
+
+| Cadence | Loop Focus | Player & AI Mayor Dynamics |
+| :--- | :--- | :--- |
+| **Minute-to-Minute** | **Gather, Craft & Fulfill** | Walk the map, harvest nodes with tools, load workshop queues, and complete active NPC citizen resource requests. |
+| **Daily Loop** | **Trade & Adapt to AI Policy** | Post and fulfill inter-town marketplace orders, react to the AI Mayor's daily tax rate and economic event modifiers, and upgrade town buildings. |
+| **Seasonal Loop** | **Summer Prep → Winter 2x Shift** | Stockpile scarce goods in Summer; profit from 2x Winter marketplace demand or adapt to the AI Mayor's Treasury subsidy decision. |
+
+* **Single-Map Stickiness:** Instead of unlocking separate maps, the **single map evolves vertically and seasonally**—buildings visually upgrade across 10 tiers, citizen occupation ranks unlock rare recipes, and Winter physically transforms the lake, forest, and caves.
+
+---
+
+## 5. Brand Identity & Color Palette (Yeti Theme)
+Sampled directly from the Anvil Yeti mascot (`assets/yeti/android-icon-background.png`):
 
 | Role | Name | Hex | Usage |
 | :--- | :--- | :--- | :--- |
 | **Primary Brand Blue** | Yeti Blue | `#40A7FC` | Active highlights, interactive accents, links, and badges. |
-| **Brand Tint / Splash** | Periwinkle Ice | `#C0CEF5` | Splash screen background, adaptive icon backdrop, soft accent containers. |
-| **Primary Dark / Ink** | Obsidian Black | `#000000` (`#0A0A0A` UI) | Headlines, primary pill CTAs, icons, and Yeti linework contrast. |
-| **Primary Light Surface** | Pure White | `#FFFFFF` | Main screen backgrounds, cards, and inverse button labels. |
+| **Brand Tint / Splash** | Periwinkle Ice | `#C0CEF5` | Splash screen background, adaptive icon backdrop, primary soft CTA buttons. |
+| **Primary Dark / Ink** | Obsidian Black | `#000000` (`#0A0A0A` UI) | Headlines, high-contrast button text, icons, and Yeti linework contrast. |
+| **Primary Light Surface** | Pure White | `#FFFFFF` | Main screen backgrounds, cards, and clean editorial layouts. |
 | **Secondary Neutral** | Frost Gray | `#E2E2E4` | Subtle borders, inactive indicators, and secondary card surfaces. |
-
----
-
-## 3. Game Modes & Visual Scopes
-To make the game feel "as real as possible and fast," the background canvas adapts to the prompt's scale:
-
-| Scale | Example Scenario | Background Rendering Strategy | Core Mechanics |
-| :--- | :--- | :--- | :--- |
-| **Macro (Global/National)** | *What if Rome never fell?* / *Alien Invasion* | Interactive Vector World Map rendered via **Shopify Skia** with custom territory shaders & borders. | Diplomacy, resource management, troop/fleet movement, timeline advancement. |
-| **Meso (City/Regional)** | *Cyberpunk Crime Syndicate in Neo-Tokyo* | Real-world city street/building footprints (GeoJSON) styled dynamically on the Skia canvas. | Territory control, location scouting, localized events, transit. |
-| **Micro (Life/Sim)** | *College dropout creating a tech startup* | Layered parallax 2.5D scene generated on the server (e.g., a dynamic garage/office) with Skia lighting/particle effects. | Dialogue trees, skill building, cash-flow management, character relationships. |
-
----
-
-## 4. Solving the "1-Hour Asset Generation" Bottleneck
-Waiting 60 minutes for a world to compile will hurt creator retention. Instead, we use a **3-Stage Progressive Asset Pipeline**:
-
-1. **Stage 1: Instant Blueprint (< 15 Seconds)**
-   * Creator types the prompt.
-   * Server LLM generates the world rules, starting factions/stats, and generates **only the 3-5 core starting characters** via Nano Banana.
-   * If Macro/Meso scale, vector map coordinates and Skia color palettes are selected instantly (0 seconds generation time).
-2. **Stage 2: Playable State (< 45 Seconds)**
-   * Creator/Player can immediately jump into the game.
-   * Remote Bun.js server handles fast cloud AI narrative turns over compact JSON payloads.
-3. **Stage 3: Asynchronous Background Baking (5–30 Minutes in Background)**
-   * While the creator tests their world or after they hit "Publish", a Bun.js background worker queue generates secondary NPCs, event cards, and regional variations, streaming them silently to the device over **WebSockets / SSE**.
-
----
-
-## 5. User Loops
-
-### A. The Creator Loop ("World Forging")
-1. **Prompting:** User enters a "What If" scenario and selects a Scale (World, City, or Life Sim).
-2. **Rule Tuning:** AI suggests starting parameters (e.g., *Roman Tech Level: 1990s*, *Starting Cash: $1,500*). Creator tweaks sliders.
-3. **Preview & Publish:** Core characters and map shaders load instantly. Creator hits publish; the Bun.js server queues deep asset generation and lists the world on the Discovery Feed.
-
-### B. The Player Loop ("Living the Simulation")
-1. **Discovery:** Browse trending worlds on the home feed.
-2. **Fast Boot:** Download the lightweight `.worldpack` (SQLite seed + initial WebP character sprites) in seconds.
-3. **Turn/Real-time Play:** Make decisions via free-text or dynamic action buttons. MMKV updates stats at 60fps; Skia animates map borders or character expressions.
