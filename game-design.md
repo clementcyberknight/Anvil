@@ -22,7 +22,8 @@
 
 The backbone of town food and stamina recovery.
 
-1. [Core Pillars & The Single-Map World](#1-core-pillars--the-single-map-world)
+1. [Core Pillars, Storyline & The Single-Map World](#1-core-pillars--the-single-map-world)
+   - [1.3 World Lore, Founding Storyline & Economic Expansion Arc](#13-world-lore-founding-storyline--economic-expansion-arc)
 2. [Master Catalog: Raw Resources (Listed First)](#2-master-catalog-raw-resources-listed-first)
 3. [Master Catalog: Processed Intermediates & Final Products (Listed First)](#3-master-catalog-processed-intermediates--final-products-listed-first)
 4. [Complete Production & Crafting Chain Maps](#4-complete-production--crafting-chain-maps)
@@ -74,6 +75,59 @@ The single map is laid out as a cohesive mountain-valley settlement rendered in 
 | `sub_ice_cavern`         | **Glacier Crystal Cavern** _(Unlockable / Winter)_ | Across Frozen Lake | Exclusive high-tier **Ice Crystals** and **Frost Pearls**.                                   | **Inaccessible** (surrounded by deep water unless Tier 8 Ice-Breaker Ferry is built).  | **Walkable across Frozen Lake** — prime Winter risk/reward expedition zone.                                                                     |
 | `sub_deep_shaft`         | **Ancient Deep Shaft** _(Unlockable)_              | Beneath Caves      | Endgame **Mithril/Glacier Ore**, **Ancient Relics**, and rare **Gem Geodes**.                | Accessible via Tier 5 Cave Elevator.                                                   | Accessible via Tier 5 Cave Elevator; bonus crystal resonance.                                                                                   |
 | `sub_greenhouse_terrace` | **Sun-Glass Terrace** _(Unlockable)_               | East Village Ridge | Glass-enclosed terraces allowing crops to grow even in Winter.                               | +20% exotic crop yield.                                                                | **Only place to grow Summer crops during Winter** (requires Glass Panes + Firewood heating).                                                    |
+
+---
+
+### 1.3 World Lore, Founding Storyline & Economic Expansion Arc
+
+#### The Legend of the First Anvil (Premise)
+Two centuries ago, **Frostpeak Valley** was the richest alpine refuge in the North. Centered around a deep spring-fed lake that thawed every Summer, the old Yeti guilds forged the legendary **First Anvil** — a symbol of craft, fair trade, and shared warmth. Every cobblestone road met at its Plaza Stone Well, and its hearths never went cold.
+
+Then came the **Great Blizzard of ’812**. An unrelenting freeze sealed the mountain passes, collapsed the Echo Cave shafts, drained the old Treasury, and scattered the guilds. For generations, Frostpeak Valley stayed buried under snow — leaving behind only the **Plaza Stone Well**, the frozen **Fishing Lake**, a weathered **Town Hall**, and a half-collapsed **Timber Shelter** beside the woods.
+
+> **Core Realism Rule — No Summer Until Hour 72:**
+> Every new town begins in **dead Winter (`Hour 0 → Hour 72`)**. Seasons advance strictly on the **72-hour gameplay seasonal cycle** (never by clicking the pond). During the first 72 hours, the mountain passes are snowed shut and the ground is frozen solid — **no Maize, no Wheat, no Bakery, and no Summer crops exist yet**. Everything the town becomes must be earned from ice, timber, fish, and real economic exchange.
+
+#### How the Town Starts & Expands Through Real Economic Activity (The 5-Act Arc)
+
+##### Act I — The First Freeze (`Hours 0–72`: Ice Fishing, Firewood & The First Warm Room)
+- **Stranded in Dead Winter:** You arrive in Frostpeak Valley as the **Founder Yeti** — not wandering passively on the map, but commanding the valley directly with your **Founder Pouch** (starting with a worn `Fishing Rod`, `Timber Hatchet`, `Fillet Knife`, and a few `Frost Coins`). Inside the frozen valley, only two stubborn holdouts remain: **Mayor Barnaby** (guarding the tattered original Town Charter inside Town Hall) and **Hector the Architect** (trying to keep a stove lit inside a half-built timber workshop).
+- **Where the First Wood Room Comes From:** There is no cozy village yet — just cold wind and snow-heavy pines. Your first job is raw survival: chop deadfall pines for **Split Firewood** (keeping the stove burning) and rough **Pine Logs** so Hector can patch and enclose the **First Warm Timber Room (Yeti Lodge / Bunkroom)**, giving arriving Yetis shelter from the freeze.
+- **Where the First Food & Coins Come From (Fish & Fish Stew):** With the earth frozen solid and mountain trade passes blocked, **no grain or Maize exists anywhere in the valley**. The only reliable, cheapest food is **Ice-Hole Lake Trout** pulled from the **Frozen Lake** and boiled with spring water from the **Plaza Stone Well** into steaming bowls of **Fish Stew** (`12–18 FC`) and **Smoked Fish**.
+- **The First Economic Loop:** Shivering **Drifters (`Toby`)** wander down from the high ridges drawn by chimney smoke. They pay their first few coins (or trade day-labor hauling logs) for cheap **Fish Stew**, **Smoked Fish**, and **Firewood**. Every bowl sold sends the very first **Business Tax (`8–15%`)** into **Mayor Barnaby’s empty Treasury**, funding the first cleared cobblestone street, the **Lakeside Fishing Pier**, **Smokehouse**, **Sawmill**, and **Hector’s Builder Shop**.
+
+##### Act II — The First Great Thaw (`Hour 72–144`: Summer Opens the Pass, Maize Arrives & The Housing Boom)
+- **The 72-Hour Breakthrough:** After surviving your full first **72-hour Winter**, the snow finally melts across Frostpeak Valley, revealing green alpine meadows and unlocking the **Southern Mountain Pass** for the first time in decades!
+- **Where Maize & Agriculture Actually Come From:** With the pass thawed, the **First Southern Merchant Caravan** rolls into the **Market Trade Post** — trading **Maize Seeds, Wheat Seeds, Flax Seeds, and Mountain Yaks** in exchange for your Winter stockpile of **Smoked Fish, Pine Planks, and Forged Iron**.
+- **Agricultural & Artisan Explosion:** For the first time, you can clear thawed `4×4` meadow blocks into rich **Loamy Soil**, plant the valley’s **first Maize & Wheat**, and commission **Hector’s Builder Crew** to construct the **Windmill Cottage**, **Cozy Bakery**, **Yak Barn**, and **Alpine Cheese Cellar**. Cheap Winter Fish Stew evolves into a full multi-tier economy of **Flour, Artisan Bread, Aged Cheese, Yak Wool, and Iron Tools**.
+- **Real Estate & Rent Expansion:** Word of the thawed valley spreads. Autonomous AI Yetis arrive as **Hopeful Drifters**, take wages across farms and workshops, and save enough Frost Coins to rent **Citizen Cottages** built by **you** or rising **Landlord Yetis (`Lord Sterling`)** (financed via **Alistair’s Town Bank**). Builders buy planks from the Sawmill and iron nails from **Torin’s Blacksmith**, expanding cobblestone roads outward across the `5,600`-block valley organically.
+
+##### Act III — Return of the Blizzard (`Hour 144+`: The Winter `2×` Crucible, Crime, Law & The Frost Cult)
+- **A Real Town Faces the Freeze:** When the 72-hour Summer ends and **Winter slams back into Frostpeak Valley**, it no longer hits an empty camp — it hits a living economy of tenants, landlords, bakeries, workshops, and a stocked **Town Bank**. Outdoor Maize and Wheat freeze solid, heating demand skyrockets, and market prices spike up to **`2.0×`**.
+- **The AI Mayor’s Dilemma:** Mayor Barnaby must decide how to deploy the Summer **Town Treasury**:
+  - *Subsidize Essentials (`TARGETED_ESSENTIALS` / `FULL_CUSHION`)* so tenants can afford Bread, Fish Stew, and Firewood, **or**
+  - *Enforce `AUSTERITY` / Raise Taxes* to protect the vault, forcing households and shops to absorb the `2×` shock.
+- **Emergent Social Fracture:** Economic pressure drives genuine citizen drama:
+  - **Crime & Town Watch:** Unemployed, freezing tenants who default on rent can slip into **Outlaw crime (`Sly Rusk`)**, stealing firewood or pilfering unguarded shops — forcing Mayor Barnaby to pay **Town Guards (`Officer Vane`)** out of the Treasury to patrol the Bank, Market, and Cottages (funneling arrest fines back into the Treasury).
+  - **The Order of the Eternal Frost (The Cult):** When Winter `2×` spikes and high taxes crush morale, **Elder Vesper** preaches by the Plaza Stone Well, recruiting stressed drifters into the **Frost Cult**. Cultists tithe `30%` of their wages into a secret communal pool to quietly lease a cottage or hire Builders for a hidden **Forest Frost Shrine** — claiming the freeze of ’812 was punishment for unchecked greed.
+- **The Founder’s Choice:** Stabilize the valley by building affordable rental cottages, keeping cheap **Fish Stew & Firewood** stocked, and hiring drifters — **or** profit as a Winter arbitrage tycoon exporting Summer stockpiles at `2×` to unprepared neighboring towns while steering Mayor Barnaby with **Civic Favor**.
+
+##### Act IV — Mastering the Freeze (Breaking Seasonal Limits & Regional Trade Empire)
+- **Conquering Winter Through Engineering:** Profits from surviving your first full Summer–Winter cycles fund game-changing upgrades:
+  - **Sun-Glass Greenhouses** on the East Ridge let you grow Maize, Wheat, and Berries straight through blizzards.
+  - **Frost-Core Cold Cellars** halt spoilage permanently so Fish, Milk, and Meat carry seamlessly across seasons.
+  - **The Frozen Lake Crossing & Echo Caves Deep Shaft (L4)** unlock **Frost Carp**, **Glacier Ice Crystals**, **Gold Ore**, and buried **Ancient Yeti Relics**.
+- **From Survival Camp to Trade Hub:** Through the multiplayer **Inter-Town Marketplace**, your upgraded **Tier 5–10 Sovereign Guildspires** export Masterwork Steel Tools, Heavy Winter Coats, Aged Alpine Cheese, and Frost Carp Chowder across the mountain range.
+
+##### Act V — The Sovereign Valley (Endgame Goals & Four Paths to Legacy)
+**Anvil** has no artificial "Game Over" — instead, every survival and economic loop converges on **four interlocking long-term goals**:
+
+| Legacy Pillar | Core Endgame Goal | What It Proves |
+| :--- | :--- | :--- |
+| **1. The Eternal Aurora Spire** *(Architectural Goal)* | Complete all **10 Stages of the Grand Yeti Monument** in Town Plaza (`Cut Stone → Iron → Silver → Frost Cores → Golden Yeti Crowns → Ancient Relics`). | Your valley grew from one patched Winter wood room and a pot of Fish Stew into a wonder surpassing the kingdom of ’812. |
+| **2. A Thriving Living Society** *(Civic & Economic Goal)* | Grow a self-sustaining autonomous town where drifters become homeowners and business owners, citizens reach **Friendship Level 10**, and the town clears a full **Winter `2×` cycle at `>= 85%` Morale** with low crime and a solvent Treasury. | You mastered real economic balance — turning scarcity into shared prosperity. |
+| **3. The 40-Item Heritage Museum** *(Discovery & Lore Goal)* | Complete all 4 wings (10 Ancient Relics, 10 Trophy Fish, 10 Frostpeak Gems, 10 Masterwork Heirlooms) to uncover **what truly triggered the Great Blizzard of ’812** and the secret tie between the **Frost Cult** and the makers of the **First Anvil**. | You explored every zone of the single map — Forest, Frozen Lake, Mountains, Glacier Cavern, and Deep Shaft. |
+| **4. Sovereign of Frostpeak** *(Multiplayer & Mastery Goal)* | Climb the **Seasonal Prosperity Leaderboard**, sign **Inter-Town Trade Pacts**, master occupations to Level 10, and earn **`Sovereign Founder of Frostpeak`** as a Trade Tycoon, Housing Baron, Master Artisan, or Civic Champion. | Your town stands as a living economic powerhouse visited by players across Anvil. |
 
 ---
 

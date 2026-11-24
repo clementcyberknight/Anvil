@@ -9,120 +9,217 @@ export interface AtlasSpriteFrame {
   readonly anchorY: number;
 }
 
-export const VALLEY_MAP_WIDTH = 1672;
-export const VALLEY_MAP_HEIGHT = 941;
-export const TOWN_ATLAS_WIDTH = 1024;
-export const TOWN_ATLAS_HEIGHT = 1216;
+export const TOWN_ATLAS_WIDTH = 1600;
+export const TOWN_ATLAS_HEIGHT = 2256;
 
 export type TownSpriteKey =
   | 'bakery'
-  | 'fenceLeft'
-  | 'fenceRight'
+  | 'bank'
+  | 'blacksmith'
+  | 'builderShop'
+  | 'cheeseCellar'
+  | 'constructionFrame'
+  | 'constructionScaffold'
+  | 'cottage'
+  | 'fishingPier'
+  | 'pineSapling'
   | 'pineTree'
-  | 'soilCornfield'
-  | 'soilGarden'
-  | 'soilSeedlings'
-  | 'soilTilled'
-  | 'tileGrass'
-  | 'tileSnow'
+  | 'sawmill'
+  | 'signpost'
+  | 'smokehouse'
+  | 'stoneWell'
+  | 'streetLantern'
+  | 'summerPine'
+  | 'townHall'
+  | 'tradePost'
   | 'windmill'
-  | 'yeti';
+  | 'yakBarn'
+  | 'yeti'
+  | 'yetiLodge';
 
 export const TOWN_ATLAS_FRAMES = {
   bakery: {
-    x: 440,
-    y: 10,
-    width: 420,
-    height: 415,
+    x: 676,
+    y: 516,
+    width: 360,
+    height: 356,
     anchorX: 0.5,
-    anchorY: 0.78,
+    anchorY: 0.8,
   },
-  fenceLeft: {
-    x: 10,
-    y: 1076,
-    width: 200,
-    height: 129,
+  bank: {
+    x: 988,
+    y: 12,
+    width: 400,
+    height: 409,
     anchorX: 0.5,
-    anchorY: 0.72,
+    anchorY: 0.84,
   },
-  fenceRight: {
-    x: 700,
-    y: 925,
-    width: 200,
-    height: 129,
+  blacksmith: {
+    x: 12,
+    y: 516,
+    width: 380,
+    height: 389,
     anchorX: 0.5,
-    anchorY: 0.72,
+    anchorY: 0.84,
+  },
+  builderShop: {
+    x: 384,
+    y: 917,
+    width: 380,
+    height: 344,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  cheeseCellar: {
+    x: 384,
+    y: 1940,
+    width: 350,
+    height: 275,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  constructionFrame: {
+    x: 12,
+    y: 1940,
+    width: 360,
+    height: 290,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  constructionScaffold: {
+    x: 1008,
+    y: 1273,
+    width: 360,
+    height: 317,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  cottage: {
+    x: 284,
+    y: 1623,
+    width: 340,
+    height: 303,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  fishingPier: {
+    x: 1048,
+    y: 917,
+    width: 380,
+    height: 342,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  pineSapling: {
+    x: 776,
+    y: 1273,
+    width: 220,
+    height: 320,
+    anchorX: 0.5,
+    anchorY: 0.9,
   },
   pineTree: {
-    x: 10,
-    y: 544,
-    width: 280,
-    height: 371,
+    x: 776,
+    y: 917,
+    width: 260,
+    height: 344,
     anchorX: 0.5,
-    anchorY: 0.88,
+    anchorY: 0.9,
   },
-  soilCornfield: {
-    x: 300,
-    y: 544,
-    width: 230,
-    height: 246,
+  sawmill: {
+    x: 12,
+    y: 1273,
+    width: 380,
+    height: 338,
     anchorX: 0.5,
-    anchorY: 0.68,
+    anchorY: 0.84,
   },
-  soilGarden: {
-    x: 705,
-    y: 544,
-    width: 220,
-    height: 146,
+  signpost: {
+    x: 1028,
+    y: 1623,
+    width: 210,
+    height: 294,
     anchorX: 0.5,
-    anchorY: 0.56,
+    anchorY: 0.9,
   },
-  soilSeedlings: {
-    x: 240,
-    y: 925,
-    width: 220,
-    height: 132,
+  smokehouse: {
+    x: 404,
+    y: 1273,
+    width: 360,
+    height: 334,
     anchorX: 0.5,
-    anchorY: 0.62,
+    anchorY: 0.84,
   },
-  soilTilled: {
-    x: 220,
-    y: 1076,
-    width: 220,
-    height: 126,
+  stoneWell: {
+    x: 12,
+    y: 1623,
+    width: 260,
+    height: 305,
     anchorX: 0.5,
-    anchorY: 0.56,
+    anchorY: 0.86,
   },
-  tileGrass: {
-    x: 470,
-    y: 925,
-    width: 220,
-    height: 132,
+  streetLantern: {
+    x: 12,
+    y: 12,
+    width: 160,
+    height: 492,
+    anchorX: 0.43,
+    anchorY: 0.94,
+  },
+  summerPine: {
+    x: 404,
+    y: 516,
+    width: 260,
+    height: 384,
     anchorX: 0.5,
-    anchorY: 0.55,
+    anchorY: 0.9,
   },
-  tileSnow: {
-    x: 10,
-    y: 925,
-    width: 220,
-    height: 141,
-    anchorX: 0.5,
-    anchorY: 0.55,
-  },
-  windmill: {
-    x: 10,
-    y: 10,
+  townHall: {
+    x: 184,
+    y: 12,
     width: 420,
-    height: 524,
+    height: 486,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  tradePost: {
+    x: 1048,
+    y: 516,
+    width: 380,
+    height: 349,
     anchorX: 0.5,
     anchorY: 0.82,
   },
+  windmill: {
+    x: 616,
+    y: 12,
+    width: 360,
+    height: 449,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  yakBarn: {
+    x: 636,
+    y: 1623,
+    width: 380,
+    height: 298,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
   yeti: {
-    x: 540,
-    y: 544,
-    width: 155,
-    height: 166,
+    x: 746,
+    y: 1940,
+    width: 140,
+    height: 150,
     anchorX: 0.5,
     anchorY: 0.86,
+  },
+  yetiLodge: {
+    x: 12,
+    y: 917,
+    width: 360,
+    height: 344,
+    anchorX: 0.5,
+    anchorY: 0.84,
   },
 } as const satisfies Record<TownSpriteKey, AtlasSpriteFrame>;

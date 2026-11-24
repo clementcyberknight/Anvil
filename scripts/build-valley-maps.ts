@@ -464,6 +464,14 @@ export interface ValleyLakeZone extends ValleyZoneRect {
   readonly tileH: number;
 }
 
+export interface ValleyBuildingPlacement {
+  readonly id: string;
+  readonly spriteKey: 'windmill' | 'bakery';
+  readonly blockX: number;
+  readonly blockY: number;
+  readonly drawWidth: number;
+}
+
 /**
  * 100x Scale Strict 4x4 Grid-Per-Block Architecture:
  * - Every Land Block is strictly a 4x4 grid of 84x84px tiles (336x336px per block).
@@ -509,6 +517,23 @@ export const VALLEY_LAKE_ZONE: ValleyLakeZone = {
   height: ${LAKE_ZONE.height},
 };
 
+export const VALLEY_STARTER_BUILDINGS: readonly ValleyBuildingPlacement[] = [
+  {
+    id: 'starter_windmill',
+    spriteKey: 'windmill',
+    blockX: 27,
+    blockY: 49,
+    drawWidth: 318,
+  },
+  {
+    id: 'starter_bakery',
+    spriteKey: 'bakery',
+    blockX: 28,
+    blockY: 50,
+    drawWidth: 328,
+  },
+];
+
 export function isLakeTile(tx: number, ty: number): boolean {
   return (
     tx >= VALLEY_LAKE_ZONE.tileX &&
@@ -534,6 +559,28 @@ export function isBlockOverlappingLake(blockX: number, blockY: number): boolean 
     blockMaxX > lakeMinX &&
     blockMinY < lakeMaxY &&
     blockMaxY > lakeMinY
+  );
+}
+
+export function isBlockOccupiedByBuilding(
+  blockX: number,
+  blockY: number
+): boolean {
+  for (let i = 0; i < VALLEY_STARTER_BUILDINGS.length; i += 1) {
+    const b = VALLEY_STARTER_BUILDINGS[i];
+
+    if (b.blockX === blockX && b.blockY === blockY) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function isBlockBlockedForSoil(blockX: number, blockY: number): boolean {
+  return (
+    isBlockOverlappingLake(blockX, blockY) ||
+    isBlockOccupiedByBuilding(blockX, blockY)
   );
 }
 `;

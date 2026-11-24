@@ -1,4 +1,3 @@
-import { VALLEY_MAP_HEIGHT, VALLEY_MAP_WIDTH } from '@/game/town-atlas';
 import type {
   BuildingBlueprint,
   BuildingEntity,
@@ -21,8 +20,8 @@ export const MAP_TOTAL_TILES = MAP_COLS * MAP_ROWS;
 
 // Native 1.2x world projection of the 1672x941 painted valley map
 export const WORLD_SCALE = 1.2;
-export const WORLD_WIDTH = Math.round(VALLEY_MAP_WIDTH * WORLD_SCALE);
-export const WORLD_HEIGHT = Math.round(VALLEY_MAP_HEIGHT * WORLD_SCALE);
+export const WORLD_WIDTH = Math.round(1672 * WORLD_SCALE);
+export const WORLD_HEIGHT = Math.round(941 * WORLD_SCALE);
 
 // 2:1 Isometric diamond geometry calibrated to the central valley clearing
 export const ISO_TILE_W = 114;

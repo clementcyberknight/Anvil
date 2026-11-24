@@ -19,10 +19,17 @@ import type {
   TreeEntity,
 } from '@/game/types';
 import {
+  BLOCK_GRID_SIZE,
+  type BuildingFacing,
+  createStarterValleyTrees,
   type DynamicPatchKind,
-  isBlockOverlappingLake,
+  isBlockBlockedForSoil,
+  type StoredValleyBuilding,
+  type TownBuildingSpriteKey,
   VALLEY_BLOCK_COLS,
   VALLEY_BLOCK_ROWS,
+  VALLEY_STARTER_BUILDINGS,
+  type ValleyPlantedTree,
 } from '@/game/valley-zones';
 import { sessionStorage } from '@/lib/storage';
 
@@ -42,6 +49,7 @@ const TOWN_KEYS = {
   bread: 'town.v4.bread',
   toolTier: 'town.v4.toolTier',
   season: 'town.v4.season',
+  seasonEpochMs: 'town.v5.seasonEpochMs',
   yetiX: 'town.v4.yetiX',
   yetiY: 'town.v4.yetiY',
   seeded: 'town.seeded.v4',
@@ -109,6 +117,23 @@ interface LandPatchRow {
   readonly block_x: number;
   readonly block_y: number;
   readonly kind: string;
+}
+
+interface ValleyTreeRow {
+  readonly id: string;
+  readonly tile_x: number;
+  readonly tile_y: number;
+  readonly planted_at_ms: number;
+  readonly mature_at_ms: number;
+}
+
+interface ValleyBuildingRow {
+  readonly id: string;
+  readonly sprite_key: string;
+  readonly block_x: number;
+  readonly block_y: number;
+  readonly draw_width: number;
+  readonly facing: number;
 }
 
 export interface StoredLandPatch {
@@ -184,6 +209,29 @@ function getTownDb(): SQLite.SQLiteDatabase {
       block_y INTEGER NOT NULL,
       kind TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS town_valley_trees (
+      id TEXT PRIMARY KEY NOT NULL,
+      tile_x INTEGER NOT NULL,
+      tile_y INTEGER NOT NULL,
+      planted_at_ms INTEGER NOT NULL,
+      mature_at_ms INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_town_valley_trees_coords
+      ON town_valley_trees (tile_x, tile_y);
+
+    CREATE TABLE IF NOT EXISTS town_valley_buildings (
+      id TEXT PRIMARY KEY NOT NULL,
+      sprite_key TEXT NOT NULL,
+      block_x INTEGER NOT NULL,
+      block_y INTEGER NOT NULL,
+      draw_width INTEGER NOT NULL,
+      facing INTEGER NOT NULL DEFAULT 0
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_town_valley_buildings_coords
+      ON town_valley_buildings (block_x, block_y);
   `);
 
   dbInstance = db;
@@ -347,10 +395,50 @@ export function saveInventory(inv: InventoryCounts): void {
   sessionStorage.set(TOWN_KEYS.toolTier, inv.toolTier);
 }
 
-export function loadSeason(): Season {
-  const stored = sessionStorage.getString(TOWN_KEYS.season);
+export const SEASON_DURATION_HOURS = 72;
+export const SEASON_DURATION_MS = SEASON_DURATION_HOURS * 60 * 60 * 1000;
 
-  return stored === 'SUMMER' ? 'SUMMER' : 'WINTER';
+export interface SeasonalClockState {
+  readonly season: Season;
+  readonly cycleNumber: number;
+  readonly remainingMs: number;
+  readonly nextSeason: Season;
+}
+
+export function loadOrInitSeasonEpochMs(nowMs: number = Date.now()): number {
+  const existing = sessionStorage.getNumber(TOWN_KEYS.seasonEpochMs);
+
+  if (existing !== undefined && existing > 0) {
+    return existing;
+  }
+
+  sessionStorage.set(TOWN_KEYS.seasonEpochMs, nowMs);
+
+  return nowMs;
+}
+
+export function computeSeasonalClockState(
+  epochMs: number,
+  nowMs: number
+): SeasonalClockState {
+  const elapsedMs = Math.max(0, nowMs - epochMs);
+  const cycleIndex = Math.floor(elapsedMs / SEASON_DURATION_MS);
+  const season: Season = cycleIndex % 2 === 0 ? 'WINTER' : 'SUMMER';
+  const nextSeason: Season = season === 'WINTER' ? 'SUMMER' : 'WINTER';
+  const remainingMs = SEASON_DURATION_MS - (elapsedMs % SEASON_DURATION_MS);
+
+  return {
+    season,
+    cycleNumber: cycleIndex + 1,
+    remainingMs,
+    nextSeason,
+  };
+}
+
+export function loadSeason(): Season {
+  const epochMs = loadOrInitSeasonEpochMs();
+
+  return computeSeasonalClockState(epochMs, Date.now()).season;
 }
 
 export function saveSeason(season: Season): void {
@@ -536,7 +624,7 @@ export function loadLandPatches(): StoredLandPatch[] {
       r.block_y < 0 ||
       r.block_y >= VALLEY_BLOCK_ROWS;
 
-    if (outOfBounds || isBlockOverlappingLake(r.block_x, r.block_y)) {
+    if (outOfBounds || isBlockBlockedForSoil(r.block_x, r.block_y)) {
       db.runSync(
         'DELETE FROM town_land_blocks WHERE block_key = ?',
         r.block_key
@@ -573,4 +661,191 @@ export function deleteLandPatch(blockX: number, blockY: number): void {
   const key = `${blockX}_${blockY}`;
 
   db.runSync('DELETE FROM town_land_blocks WHERE block_key = ?', key);
+}
+
+const VALLEY_TREES_SEEDED_KEY = 'town.valleyTrees.seeded.v1';
+
+export function loadValleyTrees(): ValleyPlantedTree[] {
+  const db = getTownDb();
+  const seeded = sessionStorage.getBoolean(VALLEY_TREES_SEEDED_KEY) ?? false;
+
+  if (!seeded) {
+    const starter = createStarterValleyTrees(Date.now());
+
+    db.withTransactionSync(() => {
+      for (let i = 0; i < starter.length; i += 1) {
+        const t = starter[i];
+
+        db.runSync(
+          `INSERT OR REPLACE INTO town_valley_trees (id, tile_x, tile_y, planted_at_ms, mature_at_ms)
+           VALUES (?, ?, ?, ?, ?)`,
+          t.id,
+          t.tileX,
+          t.tileY,
+          t.plantedAtMs,
+          t.matureAtMs
+        );
+      }
+    });
+
+    sessionStorage.set(VALLEY_TREES_SEEDED_KEY, true);
+  }
+
+  const rows = db.getAllSync<ValleyTreeRow>('SELECT * FROM town_valley_trees');
+  const trees: ValleyPlantedTree[] = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+
+    trees.push({
+      id: r.id,
+      tileX: r.tile_x,
+      tileY: r.tile_y,
+      plantedAtMs: r.planted_at_ms,
+      matureAtMs: r.mature_at_ms,
+    });
+  }
+
+  return trees;
+}
+
+export function upsertValleyTree(tree: ValleyPlantedTree): void {
+  const db = getTownDb();
+
+  db.runSync(
+    `INSERT OR REPLACE INTO town_valley_trees (id, tile_x, tile_y, planted_at_ms, mature_at_ms)
+     VALUES (?, ?, ?, ?, ?)`,
+    tree.id,
+    tree.tileX,
+    tree.tileY,
+    tree.plantedAtMs,
+    tree.matureAtMs
+  );
+}
+
+export function deleteValleyTree(id: string): void {
+  const db = getTownDb();
+
+  db.runSync('DELETE FROM town_valley_trees WHERE id = ?', id);
+}
+
+export function deleteValleyTreesInBlock(blockX: number, blockY: number): void {
+  const db = getTownDb();
+  const minTx = blockX * BLOCK_GRID_SIZE;
+  const maxTx = minTx + BLOCK_GRID_SIZE - 1;
+  const minTy = blockY * BLOCK_GRID_SIZE;
+  const maxTy = minTy + BLOCK_GRID_SIZE - 1;
+
+  db.runSync(
+    `DELETE FROM town_valley_trees
+     WHERE tile_x >= ? AND tile_x <= ? AND tile_y >= ? AND tile_y <= ?`,
+    minTx,
+    maxTx,
+    minTy,
+    maxTy
+  );
+}
+
+const VALLEY_BUILDINGS_SEEDED_KEY = 'town.valleyBuildings.seeded.v1';
+
+function parseValleyBuildingSpriteKey(raw: string): TownBuildingSpriteKey {
+  switch (raw) {
+    case 'townHall':
+    case 'bank':
+    case 'blacksmith':
+    case 'tradePost':
+    case 'yetiLodge':
+    case 'cottage':
+    case 'bakery':
+    case 'windmill':
+    case 'sawmill':
+    case 'builderShop':
+    case 'yakBarn':
+    case 'cheeseCellar':
+    case 'fishingPier':
+    case 'smokehouse':
+      return raw;
+    default:
+      return 'cottage';
+  }
+}
+
+function parseBuildingFacing(raw: number): BuildingFacing {
+  if (raw === 1) {
+    return 1;
+  }
+
+  if (raw === 2) {
+    return 2;
+  }
+
+  if (raw === 3) {
+    return 3;
+  }
+
+  return 0;
+}
+
+export function loadValleyBuildings(): StoredValleyBuilding[] {
+  const db = getTownDb();
+  const seeded = sessionStorage.getBoolean(VALLEY_BUILDINGS_SEEDED_KEY) ?? false;
+
+  if (!seeded) {
+    db.withTransactionSync(() => {
+      for (let i = 0; i < VALLEY_STARTER_BUILDINGS.length; i += 1) {
+        const b = VALLEY_STARTER_BUILDINGS[i];
+
+        db.runSync(
+          `INSERT OR REPLACE INTO town_valley_buildings
+             (id, sprite_key, block_x, block_y, draw_width, facing)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+          b.id,
+          b.spriteKey,
+          b.blockX,
+          b.blockY,
+          b.drawWidth,
+          b.facing ?? 0
+        );
+      }
+    });
+
+    sessionStorage.set(VALLEY_BUILDINGS_SEEDED_KEY, true);
+  }
+
+  const rows = db.getAllSync<ValleyBuildingRow>(
+    'SELECT * FROM town_valley_buildings'
+  );
+
+  const buildings: StoredValleyBuilding[] = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+
+    buildings.push({
+      id: r.id,
+      spriteKey: parseValleyBuildingSpriteKey(r.sprite_key),
+      blockX: r.block_x,
+      blockY: r.block_y,
+      drawWidth: r.draw_width,
+      facing: parseBuildingFacing(r.facing),
+    });
+  }
+
+  return buildings;
+}
+
+export function upsertValleyBuilding(building: StoredValleyBuilding): void {
+  const db = getTownDb();
+
+  db.runSync(
+    `INSERT OR REPLACE INTO town_valley_buildings
+       (id, sprite_key, block_x, block_y, draw_width, facing)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    building.id,
+    building.spriteKey,
+    building.blockX,
+    building.blockY,
+    building.drawWidth,
+    building.facing
+  );
 }
