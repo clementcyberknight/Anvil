@@ -2,13 +2,44 @@ import {
   Canvas,
   Image as SkiaImage,
   Skia,
+  type SkImage,
   useImage,
 } from '@shopify/react-native-skia';
 import { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import {
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
+import type { TownHallTab } from '@/components/town/town-hall-modal';
+import {
+  canCraftRecipe,
+  CRAFT_RECIPES,
+  CROP_DEFINITIONS,
+  type CropKind,
+  getEconomyItem,
+  getPouchQty,
+  type PouchEntry,
+} from '@/game/economy-engine';
+import {
+  type GameIconKey,
+  ICON_ATLAS_FRAMES,
+  ICON_ATLAS_HEIGHT,
+  ICON_ATLAS_WIDTH,
+  ICON_CELL_SIZE,
+} from '@/game/icon-atlas';
 import type { SeasonalClockState } from '@/game/town-db';
-import type { InventoryCounts } from '@/game/types';
+import {
+  computeProjectedApproval,
+  getRaidCommandRules,
+  getTotalWarbandCount,
+  OFFICE_HOLDER_META,
+  type TownGovernanceState,
+} from '@/game/town-governance';
 import {
   VILLAGER_ATLAS_HEIGHT,
   VILLAGER_ATLAS_WIDTH,
@@ -18,31 +49,78 @@ import {
 
 interface HeroPouchHudProps {
   readonly seasonalClock: SeasonalClockState;
-  readonly inventory: InventoryCounts;
+  readonly coins: number;
+  readonly pouchEntries: readonly PouchEntry[];
+  readonly governance: TownGovernanceState;
+  readonly selectedSeed: CropKind | 'pine';
   readonly citizenCount: number;
   readonly buildingCount: number;
   readonly visible: boolean;
+  readonly onSelectSeed: (seed: CropKind | 'pine') => void;
+  readonly onCraftRecipe: (recipeId: string) => void;
+  readonly onSellItem: (itemId: GameIconKey) => void;
+  readonly onBuySeed: (seedItemId: GameIconKey) => void;
+  readonly onOpenTownHall: (tab: TownHallTab) => void;
 }
 
 type ActiveModal = 'NONE' | 'PROFILE' | 'POUCH';
 
 type ProfileTab = 'FOUNDER' | 'SEASON' | 'STATS';
 
-interface PouchSlotItem {
-  readonly id: string;
-  readonly emoji: string;
+type PouchTab = 'ITEMS' | 'CRAFT' | 'SEEDS';
+
+interface SeedChoiceOption {
+  readonly seedKey: CropKind | 'pine';
+  readonly seedItemId: GameIconKey;
   readonly label: string;
-  readonly qty: number;
-  readonly accent: string;
+  readonly winterHardy: boolean;
+  readonly hint: string;
 }
 
-interface EquipmentSlotItem {
-  readonly id: string;
-  readonly emoji: string;
-  readonly label: string;
-  readonly equipped: boolean;
-  readonly unlocked: boolean;
-}
+const SEED_OPTIONS: readonly SeedChoiceOption[] = [
+  {
+    seedKey: 'turnip',
+    seedItemId: 'seedTurnip',
+    label: 'Snow Turnip',
+    winterHardy: true,
+    hint: 'Winter-hardy! Grows in 28s',
+  },
+  {
+    seedKey: 'pine',
+    seedItemId: 'seedPinecone',
+    label: 'Pine Sapling',
+    winterHardy: true,
+    hint: 'All-season timber (24s)',
+  },
+  {
+    seedKey: 'maize',
+    seedItemId: 'seedMaize',
+    label: 'Maize',
+    winterHardy: false,
+    hint: 'Summer crop (withers in Winter)',
+  },
+  {
+    seedKey: 'wheat',
+    seedItemId: 'seedWheat',
+    label: 'Wheat',
+    winterHardy: false,
+    hint: 'Summer crop for Flour & Bread',
+  },
+  {
+    seedKey: 'potato',
+    seedItemId: 'seedPotato',
+    label: 'Frost Potato',
+    winterHardy: false,
+    hint: 'Summer root crop (30s)',
+  },
+  {
+    seedKey: 'pumpkin',
+    seedItemId: 'seedPumpkin',
+    label: 'Alpine Pumpkin',
+    winterHardy: false,
+    hint: 'High-value Summer crop (40s)',
+  },
+];
 
 function formatCountdown(ms: number): string {
   const totalMinutes = Math.max(0, Math.floor(ms / 60_000));
@@ -53,16 +131,14 @@ function formatCountdown(ms: number): string {
 }
 
 function YetiAtlasPortrait({
+  atlas,
   roleRow,
   size,
 }: {
+  readonly atlas: SkImage | null;
   readonly roleRow: number;
   readonly size: number;
 }) {
-  const atlas = useImage(
-    require('@/assets/villager-asset/compiled/villagers-atlas.webp')
-  );
-
   if (atlas === null) {
     return <View style={{ width: size, height: size }} />;
   }
@@ -84,15 +160,63 @@ function YetiAtlasPortrait({
   );
 }
 
+function GameAtlasIcon({
+  atlas,
+  iconKey,
+  size,
+}: {
+  readonly atlas: SkImage | null;
+  readonly iconKey: GameIconKey;
+  readonly size: number;
+}) {
+  if (atlas === null) {
+    return <View style={{ width: size, height: size }} />;
+  }
+
+  const frame = ICON_ATLAS_FRAMES[iconKey];
+  const scale = size / ICON_CELL_SIZE;
+  const clipRect = Skia.XYWHRect(0, 0, size, size);
+
+  return (
+    <Canvas style={{ width: size, height: size }}>
+      <SkiaImage
+        image={atlas}
+        x={-frame.x * scale}
+        y={-frame.y * scale}
+        width={ICON_ATLAS_WIDTH * scale}
+        height={ICON_ATLAS_HEIGHT * scale}
+        clip={clipRect}
+      />
+    </Canvas>
+  );
+}
+
 export function HeroPouchHud({
   seasonalClock,
-  inventory,
+  coins,
+  pouchEntries,
+  governance,
+  selectedSeed,
   citizenCount,
   buildingCount,
   visible,
+  onSelectSeed,
+  onCraftRecipe,
+  onSellItem,
+  onBuySeed,
+  onOpenTownHall,
 }: HeroPouchHudProps) {
   const [activeModal, setActiveModal] = useState<ActiveModal>('NONE');
   const [profileTab, setProfileTab] = useState<ProfileTab>('FOUNDER');
+  const [pouchTab, setPouchTab] = useState<PouchTab>('ITEMS');
+
+  const villagersAtlas = useImage(
+    require('@/assets/villager-asset/compiled/villagers-atlas.webp')
+  );
+
+  const iconsAtlas = useImage(
+    require('@/assets/resource-asset/compiled/icons-atlas.webp')
+  );
 
   if (!visible) {
     return null;
@@ -100,86 +224,23 @@ export function HeroPouchHud({
 
   const countdownLabel = formatCountdown(seasonalClock.remainingMs);
   const isFirstFreeze = seasonalClock.season === 'WINTER';
+  const isPlayerMayor = governance.officeHolder === 'PLAYER';
+  const holderMeta = OFFICE_HOLDER_META[governance.officeHolder];
+  const commandRules = getRaidCommandRules(governance.officeHolder);
+  const totalArmy = getTotalWarbandCount(governance.warband);
 
-  const pouchItems: readonly (PouchSlotItem | null)[] = [
-    {
-      id: 'fish',
-      emoji: '🐟',
-      label: 'Lake Trout',
-      qty: Math.max(4, inventory.fish),
-      accent: '#E0F2FE',
-    },
-    {
-      id: 'stew',
-      emoji: '🍲',
-      label: 'Fish Stew',
-      qty: 2,
-      accent: '#FEF3C7',
-    },
-    {
-      id: 'firewood',
-      emoji: '🪵',
-      label: 'Firewood',
-      qty: Math.max(6, inventory.firewood),
-      accent: '#FFEDD5',
-    },
-    {
-      id: 'logs',
-      emoji: '🌲',
-      label: 'Pine Logs',
-      qty: Math.max(5, inventory.wood),
-      accent: '#DCFCE7',
-    },
-    {
-      id: 'coins',
-      emoji: '🪙',
-      label: 'Frost Coins',
-      qty: inventory.coins,
-      accent: '#FDE68A',
-    },
-    null,
-    null,
-    null,
-  ];
+  const liveApproval = isPlayerMayor
+    ? computeProjectedApproval(governance, seasonalClock.season)
+    : governance.approvalPct;
 
-  const equipmentItems: readonly (EquipmentSlotItem | null)[] = [
-    {
-      id: 'rod',
-      emoji: '🎣',
-      label: 'Fishing Rod',
-      equipped: true,
-      unlocked: true,
-    },
-    {
-      id: 'axe',
-      emoji: '🪓',
-      label: 'Hatchet',
-      equipped: true,
-      unlocked: true,
-    },
-    {
-      id: 'knife',
-      emoji: '🔪',
-      label: 'Fillet Knife',
-      equipped: true,
-      unlocked: true,
-    },
-    {
-      id: 'coat',
-      emoji: '🧥',
-      label: 'Founder Coat',
-      equipped: true,
-      unlocked: true,
-    },
-    null,
-    null,
-    null,
-    null,
-  ];
+  const activeSeedLabel =
+    selectedSeed === 'pine'
+      ? 'Pine Sapling'
+      : CROP_DEFINITIONS[selectedSeed].name;
 
   return (
     <>
-      {/* Floating Main Character Portrait + Leather Pouch directly below it */}
+      {/* Clean bottom-right floating dock: Founder Portrait + Pouch + Town Hall/War Shield */}
       <View style={styles.floatingDock} pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
@@ -190,10 +251,21 @@ export function HeroPouchHud({
           style={styles.heroFrame}
         >
           <View style={styles.heroPortraitClip}>
-            <YetiAtlasPortrait roleRow={VILLAGER_ROLE_ROW.hero} size={58} />
+            <YetiAtlasPortrait
+              atlas={villagersAtlas}
+              roleRow={VILLAGER_ROLE_ROW.hero}
+              size={58}
+            />
           </View>
-          <View style={styles.levelBadge}>
-            <Text style={styles.levelBadgeText}>1</Text>
+          <View
+            style={[
+              styles.levelBadge,
+              isPlayerMayor ? styles.mayorBadge : styles.privateerBadge,
+            ]}
+          >
+            <Text style={styles.levelBadgeText}>
+              {isPlayerMayor ? 'M' : 'W'}
+            </Text>
           </View>
         </Pressable>
 
@@ -205,9 +277,28 @@ export function HeroPouchHud({
           }}
           style={styles.pouchButton}
         >
-          <View style={styles.pouchFlap} />
-          <View style={styles.pouchBuckle} />
-          <Text style={styles.pouchLabel}>POUCH</Text>
+          <GameAtlasIcon atlas={iconsAtlas} iconKey="founderPouch" size={46} />
+          <View style={styles.coinFloatPill}>
+            <Text style={styles.coinFloatText}>{coins}</Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Open Town Hall and War Room"
+          onPress={() => {
+            onOpenTownHall('POLICY');
+          }}
+          style={styles.warButton}
+        >
+          <GameAtlasIcon
+            atlas={iconsAtlas}
+            iconKey={isPlayerMayor ? 'mayorCrown' : 'raidAxesShield'}
+            size={38}
+          />
+          <View style={styles.armyFloatPill}>
+            <Text style={styles.armyFloatText}>{totalArmy}</Text>
+          </View>
         </Pressable>
       </View>
 
@@ -288,7 +379,7 @@ export function HeroPouchHud({
                     profileTab === 'STATS' && styles.tabPillTextActive,
                   ]}
                 >
-                  Valley Stats
+                  Town Hall
                 </Text>
               </Pressable>
             </View>
@@ -299,16 +390,25 @@ export function HeroPouchHud({
             >
               <View style={styles.identityCard}>
                 <View style={styles.profileAvatarBox}>
-                  <YetiAtlasPortrait roleRow={VILLAGER_ROLE_ROW.hero} size={74} />
+                  <YetiAtlasPortrait
+                    atlas={villagersAtlas}
+                    roleRow={VILLAGER_ROLE_ROW.hero}
+                    size={74}
+                  />
                 </View>
                 <View style={styles.identityInfo}>
                   <Text style={styles.founderName}>Koda · Founder Yeti</Text>
                   <Text style={styles.founderSub}>
-                    Frostpeak Valley · Act I Pioneer
+                    {commandRules.modeLabel} · Rank #{governance.authorityRank}
                   </Text>
                   <View style={styles.coinChip}>
+                    <GameAtlasIcon
+                      atlas={iconsAtlas}
+                      iconKey="frostCoin"
+                      size={18}
+                    />
                     <Text style={styles.coinChipText}>
-                      🪙 {inventory.coins} Frost Coins
+                      {coins} Frost Coins
                     </Text>
                   </View>
                 </View>
@@ -317,8 +417,8 @@ export function HeroPouchHud({
               {profileTab === 'FOUNDER' && (
                 <View style={styles.rankGrid}>
                   <View style={styles.rankCard}>
-                    <Text style={styles.rankLabel}>VALLEY RANK</Text>
-                    <Text style={styles.rankValue}>Tier 1</Text>
+                    <Text style={styles.rankLabel}>APPROVAL</Text>
+                    <Text style={styles.rankValue}>{liveApproval}%</Text>
                   </View>
                   <View style={styles.rankCard}>
                     <Text style={styles.rankLabel}>CITIZENS</Text>
@@ -334,7 +434,7 @@ export function HeroPouchHud({
               {profileTab === 'SEASON' && (
                 <View style={styles.seasonCard}>
                   <Text style={styles.seasonBadge}>
-                    {isFirstFreeze ? '❄️ DEAD WINTER (ACT I)' : '☀️ SUMMER THAW'}
+                    {isFirstFreeze ? 'DEAD WINTER (ACT I)' : 'SUMMER THAW'}
                   </Text>
                   <Text style={styles.seasonTimer}>
                     {countdownLabel} until{' '}
@@ -344,46 +444,64 @@ export function HeroPouchHud({
                   </Text>
                   <Text style={styles.seasonDesc}>
                     {isFirstFreeze
-                      ? 'Mountain passes are snowed shut for 72 hours. No Maize or southern crops exist yet — survive on Ice-Hole Fish, Fish Stew, Firewood, and Timber.'
-                      : 'The mountain pass has thawed! Southern caravans now bring Maize, Wheat, and Yaks for the next 72 hours.'}
+                      ? 'Tap the Ice-Fishing Hole, Pine Deadfall, Mushrooms, and North Ridge Ore Veins. Plant Winter-hardy Snow Turnips on cleared soil — Maize & Wheat wait for Summer.'
+                      : 'The mountain pass has thawed! Maize, Wheat, Potatoes, and Alpine Pumpkins thrive across cleared valley soil.'}
                   </Text>
                 </View>
               )}
 
               {profileTab === 'STATS' && (
                 <View style={styles.seasonCard}>
-                  <Text style={styles.seasonBadge}>🏛️ TOWN TREASURY</Text>
+                  <Text style={styles.seasonBadge}>
+                    INCUMBENT: {holderMeta.name.toUpperCase()}
+                  </Text>
                   <Text style={styles.seasonTimer}>
-                    {inventory.treasury} FC Vault
+                    {governance.townTreasuryFc} FC Treasury ·{' '}
+                    {governance.taxRatePct}% Tax
                   </Text>
                   <Text style={styles.seasonDesc}>
-                    AI Mayor Barnaby taxes trade at 10% to fund Town Guards and
-                    Winter essentials subsidies.
+                    Warband Ready: {totalArmy}/{commandRules.maxArmyCount} Yetis
+                    · Raids Won: {governance.raidsWon}
                   </Text>
                 </View>
               )}
 
-              <View style={styles.storyGuideRow}>
-                <View style={styles.storyBubble}>
-                  <Text style={styles.storyTitle}>
-                    {isFirstFreeze ? 'ACT I · THE FIRST FREEZE' : 'ACT II · THE FIRST THAW'}
-                  </Text>
-                  <Text style={styles.storyText}>
-                    {isFirstFreeze
-                      ? 'Ground is frozen solid for 72h. Pull Lake Trout for cheap Fish Stew and chop Pine Logs so Hector can frame warm timber rooms.'
-                      : 'Summer is here! Clear thawed soil and trade Smoked Fish for the valley’s very first Maize & Wheat seeds.'}
-                  </Text>
-                </View>
-                <View style={styles.guideAvatar}>
-                  <YetiAtlasPortrait roleRow={VILLAGER_ROLE_ROW.mayor} size={58} />
-                </View>
+              <View style={styles.quickActionRow}>
+                <Pressable
+                  onPress={() => {
+                    setActiveModal('NONE');
+                    onOpenTownHall('POLICY');
+                  }}
+                  style={styles.quickBtn}
+                >
+                  <GameAtlasIcon
+                    atlas={iconsAtlas}
+                    iconKey="mayorCrown"
+                    size={18}
+                  />
+                  <Text style={styles.quickBtnText}>Town Hall</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setActiveModal('NONE');
+                    onOpenTownHall('WAR_ROOM');
+                  }}
+                  style={[styles.quickBtn, styles.quickBtnWar]}
+                >
+                  <GameAtlasIcon
+                    atlas={iconsAtlas}
+                    iconKey="raidAxesShield"
+                    size={18}
+                  />
+                  <Text style={styles.quickBtnWarText}>War Room</Text>
+                </Pressable>
               </View>
             </ScrollView>
           </View>
         </View>
       </Modal>
 
-      {/* FOUNDER POUCH & EQUIPMENT MODAL */}
+      {/* INTERACTIVE FOUNDER POUCH: ITEMS+SELL / CRAFT / SEEDS */}
       <Modal
         visible={activeModal === 'POUCH'}
         transparent
@@ -396,11 +514,14 @@ export function HeroPouchHud({
           <View style={styles.pouchSheet}>
             <View style={styles.pouchHeader}>
               <View style={styles.pouchTitleRow}>
+                <GameAtlasIcon
+                  atlas={iconsAtlas}
+                  iconKey="founderPouch"
+                  size={24}
+                />
                 <Text style={styles.pouchHeaderTitle}>Founder Pouch</Text>
                 <View style={styles.seasonMiniPill}>
-                  <Text style={styles.seasonMiniText}>
-                    {isFirstFreeze ? '❄️' : '☀️'} {countdownLabel}
-                  </Text>
+                  <Text style={styles.seasonMiniText}>{coins} FC</Text>
                 </View>
               </View>
               <Pressable
@@ -415,68 +536,210 @@ export function HeroPouchHud({
               </Pressable>
             </View>
 
-            <View style={styles.slotGrid}>
-              {pouchItems.map((slot, index) => (
-                <View
-                  key={slot !== null ? slot.id : `empty_pouch_${index}`}
+            <View style={styles.tabRow}>
+              {(
+                [
+                  { key: 'ITEMS', label: 'Items & Sell' },
+                  { key: 'CRAFT', label: 'Craft' },
+                  { key: 'SEEDS', label: `Seeds (${activeSeedLabel})` },
+                ] as const
+              ).map((t) => (
+                <Pressable
+                  key={t.key}
+                  onPress={() => {
+                    setPouchTab(t.key);
+                  }}
                   style={[
-                    styles.itemSlot,
-                    slot !== null && { backgroundColor: slot.accent },
-                    slot === null && styles.emptySlot,
+                    styles.tabPill,
+                    pouchTab === t.key && styles.tabPillActive,
                   ]}
                 >
-                  {slot !== null && (
-                    <>
-                      <Text style={styles.slotEmoji}>{slot.emoji}</Text>
-                      <Text style={styles.slotName} numberOfLines={1}>
-                        {slot.label}
-                      </Text>
-                      <View style={styles.qtyBadge}>
-                        <Text style={styles.qtyBadgeText}>{slot.qty}</Text>
+                  <Text
+                    style={[
+                      styles.tabPillText,
+                      pouchTab === t.key && styles.tabPillTextActive,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {t.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.pouchScrollBody}
+            >
+              {pouchTab === 'ITEMS' && (
+                <>
+                  {pouchEntries.length === 0 ? (
+                    <Text style={styles.emptyNotice}>
+                      Pouch is empty — tap the Ice-Fishing Hole, Deadfall Logs,
+                      or North Ridge Ore Veins to gather!
+                    </Text>
+                  ) : (
+                    pouchEntries.map((entry) => {
+                      const spec = getEconomyItem(entry.itemId);
+
+                      if (spec === null) {
+                        return null;
+                      }
+
+                      return (
+                        <View key={entry.itemId} style={styles.listRow}>
+                          <View style={styles.itemThumb}>
+                            <GameAtlasIcon
+                              atlas={iconsAtlas}
+                              iconKey={entry.itemId}
+                              size={36}
+                            />
+                          </View>
+                          <View style={styles.flexOne}>
+                            <Text style={styles.rowTitle}>
+                              {spec.name} ×{entry.qty}
+                            </Text>
+                            <Text style={styles.rowSub}>
+                              Tier {spec.tier} · Trade Bid {spec.npcSellPrice}{' '}
+                              FC
+                            </Text>
+                          </View>
+                          <Pressable
+                            onPress={() => {
+                              onSellItem(entry.itemId);
+                            }}
+                            style={styles.sellBtn}
+                          >
+                            <Text style={styles.sellBtnText}>
+                              Sell +{spec.npcSellPrice} FC
+                            </Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })
+                  )}
+                </>
+              )}
+
+              {pouchTab === 'CRAFT' &&
+                CRAFT_RECIPES.map((recipe) => {
+                  const craftable = canCraftRecipe(pouchEntries, recipe);
+                  const outSpec = getEconomyItem(recipe.outputItemId);
+
+                  const ingSummary = recipe.ingredients
+                    .map((ing) => {
+                      const s = getEconomyItem(ing.itemId);
+                      const have = getPouchQty(pouchEntries, ing.itemId);
+
+                      return `${have}/${ing.qty} ${s !== null ? s.name : ing.itemId}`;
+                    })
+                    .join(' · ');
+
+                  return (
+                    <View key={recipe.id} style={styles.listRow}>
+                      <View style={styles.itemThumb}>
+                        <GameAtlasIcon
+                          atlas={iconsAtlas}
+                          iconKey={recipe.outputItemId}
+                          size={36}
+                        />
                       </View>
-                    </>
-                  )}
-                </View>
-              ))}
-            </View>
+                      <View style={styles.flexOne}>
+                        <Text style={styles.rowTitle}>
+                          {recipe.name} ×{recipe.outputQty}
+                        </Text>
+                        <Text style={styles.rowSub}>{ingSummary}</Text>
+                        <Text style={styles.rowStation}>
+                          {recipe.stationLabel}
+                          {outSpec !== null
+                            ? ` · Sells ${outSpec.npcSellPrice} FC`
+                            : ''}
+                        </Text>
+                      </View>
+                      <Pressable
+                        disabled={!craftable}
+                        onPress={() => {
+                          onCraftRecipe(recipe.id);
+                        }}
+                        style={[
+                          styles.craftBtn,
+                          !craftable && styles.btnDisabled,
+                        ]}
+                      >
+                        <Text style={styles.craftBtnText}>Craft</Text>
+                      </Pressable>
+                    </View>
+                  );
+                })}
 
-            <Text style={styles.sectionHeading}>EQUIPMENT</Text>
+              {pouchTab === 'SEEDS' && (
+                <>
+                  <Text style={styles.seedBanner}>
+                    Active Seed on Soil Tap: {activeSeedLabel}. Tap snow to
+                    clear soil, then tap cleared soil to plant!
+                  </Text>
+                  {SEED_OPTIONS.map((opt) => {
+                    const spec = getEconomyItem(opt.seedItemId);
+                    const qty = getPouchQty(pouchEntries, opt.seedItemId);
+                    const buyPrice = spec !== null ? spec.npcBuyPrice : 5;
+                    const isSelected = selectedSeed === opt.seedKey;
 
-            <View style={styles.slotGrid}>
-              {equipmentItems.map((gear, index) => (
-                <View
-                  key={gear !== null ? gear.id : `empty_gear_${index}`}
-                  style={[
-                    styles.equipSlot,
-                    gear === null && styles.emptySlot,
-                  ]}
-                >
-                  {gear !== null && (
-                    <>
-                      {gear.equipped && <View style={styles.equippedCorner} />}
-                      <Text style={styles.slotEmoji}>{gear.emoji}</Text>
-                      <Text style={styles.equipName} numberOfLines={1}>
-                        {gear.label}
-                      </Text>
-                    </>
-                  )}
-                </View>
-              ))}
-            </View>
-
-            <View style={styles.storyGuideRow}>
-              <View style={styles.storyBubble}>
-                <Text style={styles.storyTitle}>CHEAPEST WINTER SURVIVAL</Text>
-                <Text style={styles.storyText}>
-                  No Maize grows until the 72h Summer Thaw. Fish & hot Fish Stew
-                  are your cheapest food to feed arriving Yetis and earn Frost
-                  Coins.
-                </Text>
-              </View>
-              <View style={styles.guideAvatar}>
-                <YetiAtlasPortrait roleRow={VILLAGER_ROLE_ROW.mayor} size={56} />
-              </View>
-            </View>
+                    return (
+                      <View
+                        key={opt.seedKey}
+                        style={[
+                          styles.listRow,
+                          isSelected && styles.seedRowSelected,
+                        ]}
+                      >
+                        <View style={styles.itemThumb}>
+                          <GameAtlasIcon
+                            atlas={iconsAtlas}
+                            iconKey={opt.seedItemId}
+                            size={36}
+                          />
+                        </View>
+                        <View style={styles.flexOne}>
+                          <Text style={styles.rowTitle}>
+                            {opt.label} ({qty} owned)
+                          </Text>
+                          <Text style={styles.rowSub}>{opt.hint}</Text>
+                        </View>
+                        <View style={styles.seedActionCol}>
+                          <Pressable
+                            onPress={() => {
+                              onSelectSeed(opt.seedKey);
+                            }}
+                            style={[
+                              styles.selectSeedBtn,
+                              isSelected && styles.selectSeedBtnActive,
+                            ]}
+                          >
+                            <Text style={styles.selectSeedText}>
+                              {isSelected ? 'Active' : 'Equip'}
+                            </Text>
+                          </Pressable>
+                          <Pressable
+                            disabled={coins < buyPrice}
+                            onPress={() => {
+                              onBuySeed(opt.seedItemId);
+                            }}
+                            style={[
+                              styles.buySeedBtn,
+                              coins < buyPrice && styles.btnDisabled,
+                            ]}
+                          >
+                            <Text style={styles.buySeedText}>
+                              Buy {buyPrice} FC
+                            </Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </>
+              )}
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -523,69 +786,92 @@ const styles = StyleSheet.create({
     width: 22,
     height: 22,
     borderRadius: 11,
-    backgroundColor: '#0A0A0A',
     borderWidth: 1.5,
-    borderColor: '#C0CEF5',
+    borderColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  mayorBadge: {
+    backgroundColor: '#2563EB',
+  },
+  privateerBadge: {
+    backgroundColor: '#DC2626',
+  },
   levelBadgeText: {
     color: '#FFFFFF',
-    fontSize: 11,
-    fontWeight: '800',
+    fontSize: 10.5,
+    fontWeight: '900',
   },
   pouchButton: {
-    width: 58,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: '#A85D26',
-    borderWidth: 2.5,
-    borderColor: '#4A2511',
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    backgroundColor: 'rgba(24, 16, 12, 0.88)',
+    borderWidth: 2,
+    borderColor: '#C67432',
     alignItems: 'center',
-    justifyContent: 'flex-end',
-    paddingBottom: 6,
-    overflow: 'hidden',
+    justifyContent: 'center',
     shadowColor: '#000000',
-    shadowOpacity: 0.35,
+    shadowOpacity: 0.38,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-  pouchFlap: {
+  coinFloatPill: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 22,
-    backgroundColor: '#C67432',
-    borderBottomLeftRadius: 14,
-    borderBottomRightRadius: 14,
-    borderBottomWidth: 2,
-    borderColor: '#5C2F16',
-  },
-  pouchBuckle: {
-    position: 'absolute',
-    top: 15,
-    width: 14,
-    height: 11,
-    borderRadius: 3,
-    backgroundColor: '#F5C451',
+    bottom: -6,
+    backgroundColor: '#F59E0B',
+    borderRadius: 999,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
     borderWidth: 1.5,
-    borderColor: '#5C2F16',
+    borderColor: '#0A0A0A',
   },
-  pouchLabel: {
-    color: '#FFF7ED',
-    fontSize: 9.5,
-    fontWeight: '800',
-    letterSpacing: 0.7,
+  coinFloatText: {
+    color: '#0A0A0A',
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  warButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: 'rgba(14, 21, 37, 0.92)',
+    borderWidth: 2,
+    borderColor: '#40A7FC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOpacity: 0.38,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 6,
+  },
+  armyFloatPill: {
+    position: 'absolute',
+    bottom: -5,
+    right: -4,
+    backgroundColor: '#40A7FC',
+    borderRadius: 999,
+    minWidth: 20,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#0A0A0A',
+  },
+  armyFloatText: {
+    color: '#0A0A0A',
+    fontSize: 10,
+    fontWeight: '900',
   },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(6, 10, 18, 0.68)',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 28,
+    paddingHorizontal: 14,
+    paddingVertical: 24,
   },
   profileSheet: {
     width: '100%',
@@ -623,11 +909,12 @@ const styles = StyleSheet.create({
   },
   tabRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   tabPill: {
     flex: 1,
     paddingVertical: 8,
+    paddingHorizontal: 6,
     borderRadius: 12,
     backgroundColor: '#E7D8BA',
     alignItems: 'center',
@@ -639,7 +926,7 @@ const styles = StyleSheet.create({
   },
   tabPillText: {
     color: '#7A5434',
-    fontSize: 12.5,
+    fontSize: 11.5,
     fontWeight: '700',
   },
   tabPillTextActive: {
@@ -685,6 +972,9 @@ const styles = StyleSheet.create({
   },
   coinChip: {
     alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
     backgroundColor: '#FEF3C7',
     borderRadius: 999,
     paddingHorizontal: 10,
@@ -747,15 +1037,43 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     lineHeight: 18,
   },
+  quickActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  quickBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#40A7FC',
+    borderRadius: 12,
+    paddingVertical: 11,
+  },
+  quickBtnWar: {
+    backgroundColor: '#0E1525',
+  },
+  quickBtnText: {
+    color: '#0A0A0A',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  quickBtnWarText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
   pouchSheet: {
     width: '100%',
-    maxWidth: 420,
-    backgroundColor: '#3B2314',
+    maxWidth: 430,
+    maxHeight: '86%',
+    backgroundColor: '#F5ECD8',
     borderRadius: 24,
-    borderWidth: 4,
-    borderColor: '#8B4A1E',
+    borderWidth: 3,
+    borderColor: '#8B5A2B',
     padding: 15,
-    gap: 12,
+    gap: 10,
   },
   pouchHeader: {
     flexDirection: 'row',
@@ -765,148 +1083,146 @@ const styles = StyleSheet.create({
   pouchTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 7,
   },
   pouchHeaderTitle: {
-    color: '#FFF7ED',
+    color: '#4A2C14',
     fontSize: 17,
     fontWeight: '800',
   },
   seasonMiniPill: {
-    backgroundColor: 'rgba(64, 167, 252, 0.24)',
+    backgroundColor: '#FEF3C7',
     borderRadius: 999,
     paddingHorizontal: 9,
     paddingVertical: 3,
     borderWidth: 1,
-    borderColor: 'rgba(192, 206, 245, 0.45)',
+    borderColor: '#EAB308',
   },
   seasonMiniText: {
-    color: '#E0F2FE',
+    color: '#78350F',
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   pouchCloseBtn: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: '#6B3414',
-    borderWidth: 1.5,
-    borderColor: '#C67432',
+    backgroundColor: '#8B4513',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  slotGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  pouchScrollBody: {
     gap: 8,
+    paddingBottom: 6,
   },
-  itemSlot: {
-    width: '23%',
-    aspectRatio: 1,
-    borderRadius: 12,
+  emptyNotice: {
+    color: '#7A5434',
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 20,
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#FFF9EC',
+    borderRadius: 14,
+    padding: 9,
+    borderWidth: 1,
+    borderColor: '#DEC9A4',
+  },
+  seedRowSelected: {
+    borderColor: '#2563EB',
     borderWidth: 2,
-    borderColor: '#C0CEF5',
+    backgroundColor: '#EFF6FF',
+  },
+  itemThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#F3E8D0',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 4,
   },
-  equipSlot: {
-    width: '23%',
-    aspectRatio: 1,
-    borderRadius: 12,
-    backgroundColor: '#1E1410',
-    borderWidth: 2,
-    borderColor: '#40A7FC',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 4,
-    overflow: 'hidden',
+  flexOne: {
+    flex: 1,
+    gap: 2,
   },
-  emptySlot: {
-    backgroundColor: '#26160D',
-    borderColor: '#54331E',
-  },
-  equippedCorner: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 12,
-    height: 12,
-    backgroundColor: '#22C55E',
-    borderBottomLeftRadius: 8,
-  },
-  slotEmoji: {
-    fontSize: 22,
-  },
-  slotName: {
-    color: '#1E293B',
-    fontSize: 9.5,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  equipName: {
-    color: '#E2E8F0',
-    fontSize: 9.5,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-  qtyBadge: {
-    position: 'absolute',
-    left: 4,
-    bottom: 4,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
-  },
-  qtyBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 9.5,
+  rowTitle: {
+    color: '#2E1A0B',
+    fontSize: 13.5,
     fontWeight: '800',
   },
-  sectionHeading: {
-    color: '#E5C69E',
+  rowSub: {
+    color: '#7C5836',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  rowStation: {
+    color: '#2563EB',
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  sellBtn: {
+    backgroundColor: '#F59E0B',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  sellBtnText: {
+    color: '#0A0A0A',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  craftBtn: {
+    backgroundColor: '#16A34A',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  craftBtnText: {
+    color: '#FFFFFF',
     fontSize: 11.5,
     fontWeight: '800',
-    letterSpacing: 1,
-    marginTop: 2,
   },
-  storyGuideRow: {
-    flexDirection: 'row',
+  btnDisabled: {
+    opacity: 0.4,
+  },
+  seedBanner: {
+    color: '#4A2C14',
+    fontSize: 11.5,
+    fontWeight: '700',
+    backgroundColor: '#FEF3C7',
+    borderRadius: 10,
+    padding: 9,
+  },
+  seedActionCol: {
+    gap: 5,
     alignItems: 'flex-end',
-    gap: 8,
-    marginTop: 2,
   },
-  storyBubble: {
-    flex: 1,
-    backgroundColor: '#FFFDF7',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderWidth: 1.5,
-    borderColor: '#DEC9A4',
-    gap: 3,
+  selectSeedBtn: {
+    backgroundColor: '#E7D8BA',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
-  storyTitle: {
-    color: '#9A3412',
+  selectSeedBtnActive: {
+    backgroundColor: '#2563EB',
+  },
+  selectSeedText: {
+    color: '#0A0A0A',
     fontSize: 10.5,
     fontWeight: '800',
-    letterSpacing: 0.5,
   },
-  storyText: {
-    color: '#334155',
-    fontSize: 11.5,
-    lineHeight: 16,
+  buySeedBtn: {
+    backgroundColor: '#C0CEF5',
+    borderRadius: 8,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
   },
-  guideAvatar: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: 'rgba(192, 206, 245, 0.25)',
-    borderWidth: 2,
-    borderColor: '#F5C451',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
+  buySeedText: {
+    color: '#0A0A0A',
+    fontSize: 10.5,
+    fontWeight: '800',
   },
 });

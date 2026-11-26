@@ -2,13 +2,14 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import sharp from 'sharp';
 
-import { TOWN_ATLAS_FRAMES, type TownSpriteKey } from '../src/game/town-atlas';
-
 interface SpriteSourceSpec {
   readonly key: string;
-  readonly inputPath: string;
+  readonly winterPath: string;
+  readonly summerPath?: string;
   readonly maxWidth: number;
   readonly removeWhiteBg: boolean;
+  readonly keepLargestComponentOnly?: boolean;
+  readonly cropRightFraction?: number;
   readonly extraSeeds?: readonly (readonly [number, number])[];
   readonly anchorX: number;
   readonly anchorY: number;
@@ -36,87 +37,101 @@ interface PackedSprite {
 
 const ROOT = process.cwd();
 const GAME_ASSET_DIR = path.join(ROOT, 'assets', 'game_asset');
+const SUMMER_ASSET_DIR = path.join(GAME_ASSET_DIR, 'summer-asset');
 const OUTPUT_DIR = path.join(GAME_ASSET_DIR, 'compiled');
-const LAND_OUTPUT_DIR = path.join(ROOT, 'assets', 'land-asset', 'compiled');
 const GENERATED_TS_PATH = path.join(ROOT, 'src', 'game', 'town-atlas.ts');
 
+// Max width tuned so all 34 sprites pack cleanly under 2048x2048 GPU limit per seasonal atlas
 const SPRITE_SPECS: readonly SpriteSourceSpec[] = [
   {
     key: 'townHall',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Bear Town Hall.png'),
-    maxWidth: 420,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Bear Town Hall.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Town Hall.jfif'),
+    maxWidth: 360,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
     key: 'bank',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Bear Bank Treasury.png'),
-    maxWidth: 400,
-    removeWhiteBg: true,
-    anchorX: 0.5,
-    anchorY: 0.84,
-  },
-  {
-    key: 'blacksmith',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Yeti Blacksmith Shop.png'),
-    maxWidth: 380,
-    removeWhiteBg: true,
-    anchorX: 0.5,
-    anchorY: 0.84,
-  },
-  {
-    key: 'tradePost',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Fantasy Market Hall.png'),
-    maxWidth: 380,
-    removeWhiteBg: true,
-    anchorX: 0.5,
-    anchorY: 0.82,
-  },
-  {
-    key: 'yetiLodge',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Yeti Cabin Game Icon.png'),
-    maxWidth: 360,
-    removeWhiteBg: true,
-    anchorX: 0.5,
-    anchorY: 0.84,
-  },
-  {
-    key: 'cottage',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Cottage with Glowing Windows.png'),
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Bear Bank Treasury.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Bank Treasury.jfif'),
     maxWidth: 340,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
-    key: 'bakery',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Cozy Bakery Storefront.png'),
-    maxWidth: 360,
+    key: 'blacksmith',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Yeti Blacksmith Shop.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Yeti Blacksmith.jfif'),
+    maxWidth: 330,
     removeWhiteBg: true,
     anchorX: 0.5,
-    anchorY: 0.80,
+    anchorY: 0.84,
+  },
+  {
+    key: 'tradePost',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Fantasy Market Hall.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Market Trade Post.jfif'),
+    maxWidth: 330,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.82,
+  },
+  {
+    key: 'yetiLodge',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Yeti Cabin Game Icon.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Yeti Lodge.jfif'),
+    maxWidth: 320,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'cottage',
+    winterPath: path.join(
+      GAME_ASSET_DIR,
+      'Snowy Cottage with Glowing Windows.png'
+    ),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Citizen Cottage.jfif'),
+    maxWidth: 300,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'bakery',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Cozy Bakery Storefront.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Bakery.jfif'),
+    maxWidth: 320,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.8,
   },
   {
     key: 'windmill',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Windmill Cottage.png'),
-    maxWidth: 360,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Windmill Cottage.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Windmill.jfif'),
+    maxWidth: 320,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
     key: 'sawmill',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Cozy Sawmill Workshop.png'),
-    maxWidth: 380,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Cozy Sawmill Workshop.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Sawmill.jfif'),
+    maxWidth: 330,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
     key: 'builderShop',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Architect\u2019s Workshop.png'),
-    maxWidth: 380,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Architect\u2019s Workshop.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Builder Workshop.jfif'),
+    maxWidth: 330,
     removeWhiteBg: true,
     extraSeeds: [[0.82, 0.28]],
     anchorX: 0.5,
@@ -124,43 +139,155 @@ const SPRITE_SPECS: readonly SpriteSourceSpec[] = [
   },
   {
     key: 'yakBarn',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Cozy Barn Game Asset.png'),
-    maxWidth: 380,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Cozy Barn Game Asset.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Yak Barn.jfif'),
+    maxWidth: 330,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
     key: 'cheeseCellar',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Alpine Cheese Creamery.png'),
-    maxWidth: 350,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Alpine Cheese Creamery.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Cheese Cellar.jfif'),
+    maxWidth: 310,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
     key: 'fishingPier',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Winter Fishing Cabin Dock.png'),
-    maxWidth: 380,
+    winterPath: path.join(
+      GAME_ASSET_DIR,
+      'Snowy Winter Fishing Cabin Dock.png'
+    ),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Fishing Pier.jfif'),
+    maxWidth: 330,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
     key: 'smokehouse',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Medieval Smokehouse Cottage.png'),
-    maxWidth: 360,
+    winterPath: path.join(
+      GAME_ASSET_DIR,
+      'Snowy Medieval Smokehouse Cottage.png'
+    ),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Smokehouse.jfif'),
+    maxWidth: 320,
     removeWhiteBg: true,
     anchorX: 0.5,
     anchorY: 0.84,
   },
   {
+    key: 'minehead',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Echo Cave Minehead.jfif'),
+    maxWidth: 330,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'smelter',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Blast Furnace Smelter.jfif'),
+    maxWidth: 330,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'barracks',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Town Watch Barracks.jfif'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Town Watch Barracks.jfif'),
+    maxWidth: 330,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'guardWatchtower',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Guard Watchtower.jfif'),
+    maxWidth: 250,
+    removeWhiteBg: true,
+    keepLargestComponentOnly: true,
+    cropRightFraction: 0.67,
+    anchorX: 0.5,
+    anchorY: 0.88,
+  },
+  {
+    key: 'snowballCatapult',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Snowball Catapult.jfif'),
+    maxWidth: 270,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.82,
+  },
+  {
+    key: 'iceTrap',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Ice Slick Trap.jfif'),
+    maxWidth: 220,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.72,
+  },
+  {
+    key: 'tavern',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Frosty Yeti Tavern.jfif'),
+    maxWidth: 330,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'apothecary',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Apothecary Tailor Hut.jfif'),
+    maxWidth: 320,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'greenhouse',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Sun Glass Greenhouse.jfif'),
+    maxWidth: 330,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.84,
+  },
+  {
+    key: 'grandMonument',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Grand Yeti Monument.jfif'),
+    maxWidth: 310,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.86,
+  },
+  {
+    key: 'constructionFoundation',
+    winterPath: path.join(
+      SUMMER_ASSET_DIR,
+      'Summer Foundation Pit Construction.jfif'
+    ),
+    summerPath: path.join(
+      SUMMER_ASSET_DIR,
+      'Summer Foundation Pit Construction.jfif'
+    ),
+    maxWidth: 320,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.8,
+  },
+  {
     key: 'constructionFrame',
-    inputPath: path.join(
+    winterPath: path.join(
       GAME_ASSET_DIR,
       'Snowy Timber House Under Construction.png'
     ),
-    maxWidth: 360,
+    summerPath: path.join(
+      SUMMER_ASSET_DIR,
+      'Summer Timber Frame Construction.jfif'
+    ),
+    maxWidth: 320,
     removeWhiteBg: true,
     extraSeeds: [
       [0.25, 0.34],
@@ -176,8 +303,15 @@ const SPRITE_SPECS: readonly SpriteSourceSpec[] = [
   },
   {
     key: 'constructionScaffold',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Cottage Under Construction.png'),
-    maxWidth: 360,
+    winterPath: path.join(
+      GAME_ASSET_DIR,
+      'Snowy Cottage Under Construction.png'
+    ),
+    summerPath: path.join(
+      SUMMER_ASSET_DIR,
+      'Summer Cottage Scaffold Construction.jfif'
+    ),
+    maxWidth: 320,
     removeWhiteBg: true,
     extraSeeds: [
       [0.42, 0.14],
@@ -192,10 +326,10 @@ const SPRITE_SPECS: readonly SpriteSourceSpec[] = [
   },
   {
     key: 'stoneWell',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Medieval Stone Well.png'),
-    maxWidth: 260,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Medieval Stone Well.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Stone Well.jfif'),
+    maxWidth: 220,
     removeWhiteBg: true,
-    // Clear hollow open-air windows inside the timber well frame around the rope & bucket
     extraSeeds: [
       [0.37, 0.57],
       [0.62, 0.56],
@@ -207,8 +341,9 @@ const SPRITE_SPECS: readonly SpriteSourceSpec[] = [
   },
   {
     key: 'streetLantern',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snowy Whimsical Lantern Post.png'),
-    maxWidth: 160,
+    winterPath: path.join(GAME_ASSET_DIR, 'Snowy Whimsical Lantern Post.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Street Lantern.jfif'),
+    maxWidth: 140,
     removeWhiteBg: true,
     extraSeeds: [
       [0.64, 0.22],
@@ -219,43 +354,55 @@ const SPRITE_SPECS: readonly SpriteSourceSpec[] = [
   },
   {
     key: 'signpost',
-    inputPath: path.join(
+    winterPath: path.join(
       GAME_ASSET_DIR,
       'Snowy Woodland Signpost with Barrels and Crate.png'
     ),
-    maxWidth: 210,
+    maxWidth: 190,
     removeWhiteBg: true,
     anchorX: 0.5,
-    anchorY: 0.90,
+    anchorY: 0.9,
   },
   {
     key: 'pineTree',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snow-Covered Cartoon Pine Tree.png'),
-    maxWidth: 260,
-    removeWhiteBg: true,
-    anchorX: 0.5,
-    anchorY: 0.90,
-  },
-  {
-    key: 'pineSapling',
-    inputPath: path.join(GAME_ASSET_DIR, 'Snow-Capped Cartoon Pine Tree.png'),
+    winterPath: path.join(
+      GAME_ASSET_DIR,
+      'Snow-Covered Cartoon Pine Tree.png'
+    ),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Pine Tree.jfif'),
     maxWidth: 220,
     removeWhiteBg: true,
     anchorX: 0.5,
-    anchorY: 0.90,
+    anchorY: 0.9,
+  },
+  {
+    key: 'pineSapling',
+    winterPath: path.join(GAME_ASSET_DIR, 'Snow-Capped Cartoon Pine Tree.png'),
+    summerPath: path.join(SUMMER_ASSET_DIR, 'Summer Pine Sapling.jfif'),
+    maxWidth: 190,
+    removeWhiteBg: true,
+    anchorX: 0.5,
+    anchorY: 0.9,
   },
   {
     key: 'summerPine',
-    inputPath: path.join(GAME_ASSET_DIR, 'Cartoon Evergreen Tree Game Asset.png'),
-    maxWidth: 260,
+    winterPath: path.join(
+      SUMMER_ASSET_DIR,
+      'Cartoon Evergreen Tree Game Asset.png'
+    ),
+    summerPath: path.join(
+      SUMMER_ASSET_DIR,
+      'Cartoon Evergreen Tree Game Asset.png'
+    ),
+    maxWidth: 220,
     removeWhiteBg: true,
     anchorX: 0.5,
-    anchorY: 0.90,
+    anchorY: 0.9,
   },
   {
     key: 'yeti',
-    inputPath: path.join(ROOT, 'assets', 'yeti', 'android-icon-background.png'),
-    maxWidth: 140,
+    winterPath: path.join(ROOT, 'assets', 'yeti', 'android-icon-background.png'),
+    maxWidth: 120,
     removeWhiteBg: false,
     anchorX: 0.5,
     anchorY: 0.86,
@@ -400,6 +547,73 @@ function stripExteriorWhiteBackground(
   }
 }
 
+/**
+ * Removes detached stray pixel smudges (such as floating generator artifacts)
+ * while keeping the main sprite connected component intact.
+ */
+function keepLargestOpaqueComponent(
+  data: Buffer,
+  width: number,
+  height: number
+): void {
+  const total = width * height;
+  const labels = new Int32Array(total);
+  const queue = new Int32Array(total);
+  let nextLabel = 1;
+  let bestLabel = 0;
+  let bestSize = 0;
+
+  for (let start = 0; start < total; start += 1) {
+    if (labels[start] !== 0 || data[start * 4 + 3] <= 24) {
+      continue;
+    }
+
+    const label = nextLabel;
+
+    nextLabel += 1;
+    let head = 0;
+    let tail = 0;
+
+    labels[start] = label;
+    queue[tail] = start;
+    tail += 1;
+
+    while (head < tail) {
+      const idx = queue[head];
+
+      head += 1;
+      const x = idx % width;
+      const y = (idx / width) | 0;
+
+      const tryNeighbor = (nx: number, ny: number): void => {
+        const nIdx = ny * width + nx;
+
+        if (labels[nIdx] === 0 && data[nIdx * 4 + 3] > 24) {
+          labels[nIdx] = label;
+          queue[tail] = nIdx;
+          tail += 1;
+        }
+      };
+
+      if (x > 0) tryNeighbor(x - 1, y);
+      if (x + 1 < width) tryNeighbor(x + 1, y);
+      if (y > 0) tryNeighbor(x, y - 1);
+      if (y + 1 < height) tryNeighbor(x, y + 1);
+    }
+
+    if (tail > bestSize) {
+      bestSize = tail;
+      bestLabel = label;
+    }
+  }
+
+  for (let i = 0; i < total; i += 1) {
+    if (labels[i] !== bestLabel) {
+      data[i * 4 + 3] = 0;
+    }
+  }
+}
+
 function findAlphaBounds(
   data: Buffer,
   width: number,
@@ -441,49 +655,42 @@ function findAlphaBounds(
   };
 }
 
-async function processSprite(
+async function processSpriteFromPath(
   spec: SpriteSourceSpec,
-  existingAtlasBuffer: Buffer | null
+  inputPath: string
 ): Promise<ProcessedSprite> {
-  if (!existsSync(spec.inputPath)) {
-    const existingFrame =
-      existingAtlasBuffer !== null && spec.key in TOWN_ATLAS_FRAMES
-        ? TOWN_ATLAS_FRAMES[spec.key as TownSpriteKey]
-        : null;
-
-    if (existingFrame === null || existingAtlasBuffer === null) {
-      throw new Error(`Missing source file for sprite "${spec.key}": ${spec.inputPath}`);
-    }
-
-    const extracted = await sharp(existingAtlasBuffer)
-      .extract({
-        left: existingFrame.x,
-        top: existingFrame.y,
-        width: existingFrame.width,
-        height: existingFrame.height,
-      })
-      .png()
-      .toBuffer();
-
-    return {
-      key: spec.key,
-      width: existingFrame.width,
-      height: existingFrame.height,
-      anchorX: spec.anchorX,
-      anchorY: spec.anchorY,
-      buffer: extracted,
-    };
+  if (!existsSync(inputPath)) {
+    throw new Error(`Missing source file for "${spec.key}": ${inputPath}`);
   }
 
-  const { data, info } = await sharp(spec.inputPath)
+  const { data, info } = await sharp(inputPath)
     .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true });
 
   const rgba = Buffer.from(data);
 
+  if (spec.cropRightFraction !== undefined) {
+    const cutX = Math.floor(info.width * spec.cropRightFraction);
+
+    for (let y = 0; y < info.height; y += 1) {
+      for (let x = cutX; x < info.width; x += 1) {
+        const p = (y * info.width + x) * 4;
+
+        rgba[p] = 255;
+        rgba[p + 1] = 255;
+        rgba[p + 2] = 255;
+        rgba[p + 3] = 0;
+      }
+    }
+  }
+
   if (spec.removeWhiteBg) {
     stripExteriorWhiteBackground(rgba, info.width, info.height, spec.extraSeeds);
+
+    if (spec.keepLargestComponentOnly) {
+      keepLargestOpaqueComponent(rgba, info.width, info.height);
+    }
   }
 
   const bounds = findAlphaBounds(rgba, info.width, info.height);
@@ -562,69 +769,15 @@ function packSpritesOnShelves(
   return { packed, atlasHeight };
 }
 
-async function compileCobblestoneStreets(): Promise<void> {
-  mkdirSync(LAND_OUTPUT_DIR, { recursive: true });
+async function compileAtlas(
+  sprites: readonly ProcessedSprite[],
+  atlasWidth: number,
+  outFileName: string
+): Promise<{ packed: PackedSprite[]; atlasHeight: number }> {
+  const { packed, atlasHeight } = packSpritesOnShelves(sprites, atlasWidth, 10);
+  const atlasPath = path.join(OUTPUT_DIR, outFileName);
 
-  const cobbleSrc = path.join(
-    GAME_ASSET_DIR,
-    'Hand-Painted Cobblestone Path Texture.png'
-  );
-
-  if (!existsSync(cobbleSrc)) {
-    console.log(
-      '    Cobblestone raw PNG already cleaned up — preserving compiled street WebPs.'
-    );
-
-    return;
-  }
-
-  // Tile scale tuned so individual 800s flagstones look realistic relative to buildings & lamps
-  const tileW = 460;
-  const tileH = 306;
-
-  const [summerRes, winterRes] = await Promise.all([
-    sharp(cobbleSrc)
-      .resize(tileW, tileH, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
-      .webp({ quality: 88, effort: 6 })
-      .toFile(path.join(LAND_OUTPUT_DIR, 'summer-street-tile.webp')),
-    sharp(cobbleSrc)
-      .resize(tileW, tileH, { fit: 'fill', kernel: sharp.kernel.lanczos3 })
-      .modulate({ saturation: 0.42, brightness: 1.08 })
-      .tint({ r: 214, g: 226, b: 246 })
-      .webp({ quality: 88, effort: 6 })
-      .toFile(path.join(LAND_OUTPUT_DIR, 'winter-street-tile.webp')),
-  ]);
-
-  console.log(
-    `    summer-street-tile.webp (cobblestone): ${summerRes.width}x${summerRes.height} (${(summerRes.size / 1024).toFixed(1)} KB)`
-  );
-  console.log(
-    `    winter-street-tile.webp (frosted cobble): ${winterRes.width}x${winterRes.height} (${(winterRes.size / 1024).toFixed(1)} KB)`
-  );
-}
-
-async function main(): Promise<void> {
-  mkdirSync(OUTPUT_DIR, { recursive: true });
-
-  console.log('1/3 Compiling 800s cobblestone Winter & Summer street textures...');
-  await compileCobblestoneStreets();
-
-  console.log(
-    `2/3 Stripping exterior white backgrounds & packing all ${SPRITE_SPECS.length} sprites...`
-  );
-
-  const atlasPath = path.join(OUTPUT_DIR, 'town-atlas.webp');
-  const existingAtlasBuffer = existsSync(atlasPath)
-    ? await sharp(atlasPath).ensureAlpha().png().toBuffer()
-    : null;
-
-  const processed = await Promise.all(
-    SPRITE_SPECS.map((spec) => processSprite(spec, existingAtlasBuffer))
-  );
-  const atlasWidth = 1600;
-  const { packed, atlasHeight } = packSpritesOnShelves(processed, atlasWidth, 12);
-
-  const atlasResult = await sharp({
+  const result = await sharp({
     create: {
       width: atlasWidth,
       height: atlasHeight,
@@ -639,23 +792,76 @@ async function main(): Promise<void> {
         top: s.y,
       }))
     )
-    .webp({ quality: 90, alphaQuality: 100, effort: 6 })
+    .webp({ quality: 88, alphaQuality: 100, effort: 6 })
     .toFile(atlasPath);
 
   console.log(
-    `    town-atlas.webp: ${atlasWidth}x${atlasHeight} (${(atlasResult.size / 1024).toFixed(1)} KB)`
+    `    ${outFileName}: ${atlasWidth}x${atlasHeight} (${(result.size / 1024).toFixed(1)} KB)`
   );
 
-  console.log('3/3 Generating typed atlas manifest src/game/town-atlas.ts...');
+  return { packed, atlasHeight };
+}
 
+function formatFrameMap(packed: readonly PackedSprite[]): string {
   const sortedByKey = [...packed].sort((a, b) => a.key.localeCompare(b.key));
 
-  const frameEntries = sortedByKey
+  return sortedByKey
     .map(
       (s) =>
         `  ${s.key}: {\n    x: ${s.x},\n    y: ${s.y},\n    width: ${s.width},\n    height: ${s.height},\n    anchorX: ${s.anchorX},\n    anchorY: ${s.anchorY},\n  },`
     )
     .join('\n');
+}
+
+async function main(): Promise<void> {
+  mkdirSync(OUTPUT_DIR, { recursive: true });
+
+  console.log(
+    `1/3 Processing ${SPRITE_SPECS.length} Winter town buildings, defenses & props...`
+  );
+
+  const winterProcessed = await Promise.all(
+    SPRITE_SPECS.map((spec) => processSpriteFromPath(spec, spec.winterPath))
+  );
+
+  const winterByKey = new Map<string, ProcessedSprite>();
+
+  for (let i = 0; i < winterProcessed.length; i += 1) {
+    winterByKey.set(winterProcessed[i].key, winterProcessed[i]);
+  }
+
+  console.log(
+    `2/3 Processing ${SPRITE_SPECS.length} Summer snow-free buildings & props...`
+  );
+
+  const summerProcessed = await Promise.all(
+    SPRITE_SPECS.map(async (spec) => {
+      if (spec.summerPath !== undefined && existsSync(spec.summerPath)) {
+        return processSpriteFromPath(spec, spec.summerPath);
+      }
+
+      const fallback = winterByKey.get(spec.key);
+
+      if (fallback === undefined) {
+        throw new Error(`Missing winter fallback for "${spec.key}"`);
+      }
+
+      return fallback;
+    })
+  );
+
+  const atlasWidth = 1920;
+
+  const [winterAtlas, summerAtlas] = await Promise.all([
+    compileAtlas(winterProcessed, atlasWidth, 'town-atlas.webp'),
+    compileAtlas(summerProcessed, atlasWidth, 'town-atlas-summer.webp'),
+  ]);
+
+  console.log('3/3 Generating typed dual-season manifest src/game/town-atlas.ts...');
+
+  const sortedKeys = [...SPRITE_SPECS]
+    .map((s) => s.key)
+    .sort((a, b) => a.localeCompare(b));
 
   const tsContent = `// Auto-generated by scripts/process-game-assets.ts — do not edit manually.
 
@@ -669,13 +875,19 @@ export interface AtlasSpriteFrame {
 }
 
 export const TOWN_ATLAS_WIDTH = ${atlasWidth};
-export const TOWN_ATLAS_HEIGHT = ${atlasHeight};
+export const TOWN_ATLAS_HEIGHT = ${winterAtlas.atlasHeight};
+export const TOWN_SUMMER_ATLAS_WIDTH = ${atlasWidth};
+export const TOWN_SUMMER_ATLAS_HEIGHT = ${summerAtlas.atlasHeight};
 
 export type TownSpriteKey =
-${sortedByKey.map((s) => `  | '${s.key}'`).join('\n')};
+${sortedKeys.map((k) => `  | '${k}'`).join('\n')};
 
 export const TOWN_ATLAS_FRAMES = {
-${frameEntries}
+${formatFrameMap(winterAtlas.packed)}
+} as const satisfies Record<TownSpriteKey, AtlasSpriteFrame>;
+
+export const TOWN_SUMMER_ATLAS_FRAMES = {
+${formatFrameMap(summerAtlas.packed)}
 } as const satisfies Record<TownSpriteKey, AtlasSpriteFrame>;
 `;
 

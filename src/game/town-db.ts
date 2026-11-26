@@ -1,12 +1,29 @@
 import * as SQLite from 'expo-sqlite';
 
 import {
+  type CropKind,
+  getEconomyItem,
+  INITIAL_POUCH_ENTRIES,
+  type PouchEntry,
+  STARTING_CAPITAL_FC,
+  type ValleyPlantedCrop,
+} from '@/game/economy-engine';
+import { ICON_ATLAS_FRAMES, type GameIconKey } from '@/game/icon-atlas';
+import {
   createStarterBuildings,
   createStarterCrops,
   createStarterOres,
   createStarterTrees,
   YETI_SPAWN_TILE,
 } from '@/game/map-data';
+import {
+  type ArmyUnitKey,
+  createDefaultGovernanceState,
+  type OfficeHolder,
+  type TownGovernanceState,
+  type WarbandSlot,
+  type WinterPolicy,
+} from '@/game/town-governance';
 import type {
   BuildingEntity,
   BuildingKind,
@@ -50,6 +67,9 @@ const TOWN_KEYS = {
   toolTier: 'town.v4.toolTier',
   season: 'town.v4.season',
   seasonEpochMs: 'town.v5.seasonEpochMs',
+  founderCoins: 'town.v5.founderCoins',
+  pouchEntries: 'town.v5.pouchEntries',
+  governanceState: 'town.v5.governanceState',
   yetiX: 'town.v4.yetiX',
   yetiY: 'town.v4.yetiY',
   seeded: 'town.seeded.v4',
@@ -134,6 +154,15 @@ interface ValleyBuildingRow {
   readonly block_y: number;
   readonly draw_width: number;
   readonly facing: number;
+}
+
+interface ValleyCropRow {
+  readonly id: string;
+  readonly tile_x: number;
+  readonly tile_y: number;
+  readonly crop_kind: string;
+  readonly planted_at_ms: number;
+  readonly mature_at_ms: number;
 }
 
 export interface StoredLandPatch {
@@ -232,6 +261,18 @@ function getTownDb(): SQLite.SQLiteDatabase {
 
     CREATE INDEX IF NOT EXISTS idx_town_valley_buildings_coords
       ON town_valley_buildings (block_x, block_y);
+
+    CREATE TABLE IF NOT EXISTS town_valley_crops (
+      id TEXT PRIMARY KEY NOT NULL,
+      tile_x INTEGER NOT NULL,
+      tile_y INTEGER NOT NULL,
+      crop_kind TEXT NOT NULL,
+      planted_at_ms INTEGER NOT NULL,
+      mature_at_ms INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_town_valley_crops_coords
+      ON town_valley_crops (tile_x, tile_y);
   `);
 
   dbInstance = db;
@@ -848,4 +889,276 @@ export function upsertValleyBuilding(building: StoredValleyBuilding): void {
     building.drawWidth,
     building.facing
   );
+}
+
+function parseCropKind(raw: string): CropKind {
+  switch (raw) {
+    case 'maize':
+      return 'maize';
+    case 'wheat':
+      return 'wheat';
+    case 'potato':
+      return 'potato';
+    case 'pumpkin':
+      return 'pumpkin';
+    default:
+      return 'turnip';
+  }
+}
+
+export function loadValleyCrops(): ValleyPlantedCrop[] {
+  const db = getTownDb();
+  const rows = db.getAllSync<ValleyCropRow>('SELECT * FROM town_valley_crops');
+  const crops: ValleyPlantedCrop[] = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+
+    crops.push({
+      id: r.id,
+      tileX: r.tile_x,
+      tileY: r.tile_y,
+      cropKind: parseCropKind(r.crop_kind),
+      plantedAtMs: r.planted_at_ms,
+      matureAtMs: r.mature_at_ms,
+    });
+  }
+
+  return crops;
+}
+
+export function upsertValleyCrop(crop: ValleyPlantedCrop): void {
+  const db = getTownDb();
+
+  db.runSync(
+    `INSERT OR REPLACE INTO town_valley_crops
+       (id, tile_x, tile_y, crop_kind, planted_at_ms, mature_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    crop.id,
+    crop.tileX,
+    crop.tileY,
+    crop.cropKind,
+    crop.plantedAtMs,
+    crop.matureAtMs
+  );
+}
+
+export function deleteValleyCrop(id: string): void {
+  const db = getTownDb();
+
+  db.runSync('DELETE FROM town_valley_crops WHERE id = ?', id);
+}
+
+export function deleteValleyCropsInBlock(blockX: number, blockY: number): void {
+  const db = getTownDb();
+  const minTx = blockX * BLOCK_GRID_SIZE;
+  const maxTx = minTx + BLOCK_GRID_SIZE - 1;
+  const minTy = blockY * BLOCK_GRID_SIZE;
+  const maxTy = minTy + BLOCK_GRID_SIZE - 1;
+
+  db.runSync(
+    `DELETE FROM town_valley_crops
+     WHERE tile_x >= ? AND tile_x <= ? AND tile_y >= ? AND tile_y <= ?`,
+    minTx,
+    maxTx,
+    minTy,
+    maxTy
+  );
+}
+
+export function loadFounderCoins(): number {
+  const saved = sessionStorage.getNumber(TOWN_KEYS.founderCoins);
+
+  if (saved !== undefined && Number.isFinite(saved) && saved >= 0) {
+    return Math.round(saved);
+  }
+
+  sessionStorage.set(TOWN_KEYS.founderCoins, STARTING_CAPITAL_FC);
+
+  return STARTING_CAPITAL_FC;
+}
+
+export function saveFounderCoins(coins: number): void {
+  sessionStorage.set(TOWN_KEYS.founderCoins, Math.max(0, Math.round(coins)));
+}
+
+function isValidGameIconKey(raw: string): raw is GameIconKey {
+  return raw in ICON_ATLAS_FRAMES;
+}
+
+export function loadPouchEntries(): PouchEntry[] {
+  const raw = sessionStorage.getString(TOWN_KEYS.pouchEntries);
+
+  if (raw === undefined || raw.length === 0) {
+    return [...INITIAL_POUCH_ENTRIES];
+  }
+
+  const parsed: PouchEntry[] = [];
+  const pairs = raw.split(';');
+
+  for (let i = 0; i < pairs.length; i += 1) {
+    const part = pairs[i];
+
+    if (part.length === 0) {
+      continue;
+    }
+
+    const [key, qtyStr] = part.split(':');
+    const qty = Number(qtyStr);
+
+    if (
+      key !== undefined &&
+      isValidGameIconKey(key) &&
+      getEconomyItem(key) !== null &&
+      Number.isFinite(qty) &&
+      qty > 0
+    ) {
+      parsed.push({ itemId: key, qty: Math.floor(qty) });
+    }
+  }
+
+  return parsed.length > 0 ? parsed : [...INITIAL_POUCH_ENTRIES];
+}
+
+export function savePouchEntries(entries: readonly PouchEntry[]): void {
+  const parts: string[] = [];
+
+  for (let i = 0; i < entries.length; i += 1) {
+    const e = entries[i];
+
+    if (e.qty > 0) {
+      parts.push(`${e.itemId}:${Math.floor(e.qty)}`);
+    }
+  }
+
+  sessionStorage.set(TOWN_KEYS.pouchEntries, parts.join(';'));
+}
+
+function parseOfficeHolder(raw: string): OfficeHolder {
+  switch (raw) {
+    case 'AI_BARNABY':
+      return 'AI_BARNABY';
+    case 'AI_STERLING':
+      return 'AI_STERLING';
+    case 'AI_VESPER':
+      return 'AI_VESPER';
+    default:
+      return 'PLAYER';
+  }
+}
+
+function parseWinterPolicy(raw: string): WinterPolicy {
+  switch (raw) {
+    case 'FULL_CUSHION':
+      return 'FULL_CUSHION';
+    case 'MODERATE_RELIEF':
+      return 'MODERATE_RELIEF';
+    case 'AUSTERITY':
+      return 'AUSTERITY';
+    default:
+      return 'TARGETED_ESSENTIALS';
+  }
+}
+
+function parseArmyUnitKey(raw: string): ArmyUnitKey | null {
+  switch (raw) {
+    case 'shieldguard':
+    case 'axeman':
+    case 'archer':
+    case 'rogue':
+    case 'ram':
+    case 'mystic':
+    case 'apothecary':
+      return raw;
+    default:
+      return null;
+  }
+}
+
+export function loadTownGovernance(): TownGovernanceState {
+  const raw = sessionStorage.getString(TOWN_KEYS.governanceState);
+  const fallback = createDefaultGovernanceState();
+
+  if (raw === undefined || raw.length === 0) {
+    return fallback;
+  }
+
+  const fields = raw.split('|');
+
+  if (fields.length < 10) {
+    return fallback;
+  }
+
+  const officeHolder = parseOfficeHolder(fields[0]);
+  const taxRatePct = Math.max(5, Math.min(18, Number(fields[1]) || 10));
+  const winterPolicy = parseWinterPolicy(fields[2]);
+  const townTreasuryFc = Math.max(0, Math.round(Number(fields[3]) || 620));
+  const approvalPct = Math.max(0, Math.min(100, Math.round(Number(fields[4]) || 64)));
+  const authorityRank = Math.max(0, Math.round(Number(fields[5]) || 100));
+  const raidsWon = Math.max(0, Math.round(Number(fields[6]) || 0));
+  const reliefDonations = Math.max(0, Math.round(Number(fields[7]) || 0));
+  const electionCount = Math.max(0, Math.round(Number(fields[8]) || 0));
+  const bountyDone = fields[9] === '1';
+
+  const warband: WarbandSlot[] = [];
+  const wbRaw = fields[10] ?? '';
+
+  if (wbRaw.length > 0) {
+    const tokens = wbRaw.split(',');
+
+    for (let i = 0; i < tokens.length; i += 1) {
+      const [k, cntStr] = tokens[i].split(':');
+      const unitKey = k !== undefined ? parseArmyUnitKey(k) : null;
+      const count = Math.max(0, Math.floor(Number(cntStr) || 0));
+
+      if (unitKey !== null && count > 0) {
+        warband.push({ unitKey, count });
+      }
+    }
+  }
+
+  return {
+    officeHolder,
+    taxRatePct,
+    winterPolicy,
+    townTreasuryFc,
+    approvalPct,
+    authorityRank,
+    raidsWon,
+    reliefDonations,
+    electionCount,
+    warband: warband.length > 0 ? warband : fallback.warband,
+    activeBounty: {
+      ...fallback.activeBounty,
+      completed: bountyDone,
+    },
+  };
+}
+
+export function saveTownGovernance(state: TownGovernanceState): void {
+  const wbParts: string[] = [];
+
+  for (let i = 0; i < state.warband.length; i += 1) {
+    const slot = state.warband[i];
+
+    if (slot.count > 0) {
+      wbParts.push(`${slot.unitKey}:${slot.count}`);
+    }
+  }
+
+  const encoded = [
+    state.officeHolder,
+    String(state.taxRatePct),
+    state.winterPolicy,
+    String(Math.round(state.townTreasuryFc)),
+    String(Math.round(state.approvalPct)),
+    String(Math.round(state.authorityRank)),
+    String(state.raidsWon),
+    String(state.reliefDonations),
+    String(state.electionCount),
+    state.activeBounty.completed ? '1' : '0',
+    wbParts.join(','),
+  ].join('|');
+
+  sessionStorage.set(TOWN_KEYS.governanceState, encoded);
 }

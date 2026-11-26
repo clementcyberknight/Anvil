@@ -1,0 +1,47 @@
+id,name,category,tier,ref_price,npc_buy_ask,npc_sell_bid,spread_pct,winter_max_mult,local_subsidy_bound
+seed_maize,Maize Seeds,seed,1,3.0,4,2,50.0,1.4,False
+seed_wheat,Wheat Seeds,seed,1,3.0,4,2,50.0,1.4,False
+seed_turnip,Snow Turnip Seeds,seed,1,4.0,5,2,60.0,1.6,False
+seed_potato,Frost Potato Seeds,seed,1,4.0,5,2,60.0,1.5,False
+seed_pine,Pinecone Seed,seed,1,3.0,4,2,50.0,1.3,False
+lake_trout,Lake Trout,raw,1,7.0,9,5,44.4,1.65,True
+frost_carp,Frost Carp,raw,2,18.89,23,13,43.5,1.85,False
+pine_log,Pine Log,raw,1,6.0,8,4,50.0,1.75,False
+oak_log,Hardwood Oak Log,raw,2,15.45,19,11,42.1,1.75,False
+maize_cob,Maize Cob,raw,1,7.0,9,5,44.4,2.0,False
+wheat_sheaf,Wheat Sheaf,raw,1,7.0,9,5,44.4,2.0,False
+snow_turnip,Snow Turnip,raw,1,6.4,8,4,50.0,1.6,True
+frost_potato,Frost Potato,raw,1,7.6,10,5,50.0,1.8,False
+mountain_berries,Mountain Berries,raw,1,8.0,10,5,50.0,1.9,False
+forest_mushroom,Forest Mushrooms,raw,1,6.4,8,4,50.0,1.55,False
+frost_mint,Frost Mint,raw,2,13.74,17,9,47.1,1.8,False
+yak_milk,Yak Milk,raw,2,12.02,15,8,46.7,1.85,False
+yak_wool,Yak Wool,raw,2,13.74,17,9,47.1,1.9,False
+raw_stone,Raw Stone,ore,1,3.6,5,2,60.0,1.4,False
+coal_chunk,Coal Chunk,ore,1,5.2,7,3,57.1,1.85,False
+copper_ore,Copper Ore,ore,1,7.6,10,5,50.0,1.6,False
+iron_ore,Iron Ore,ore,2,10.65,13,7,46.2,1.7,False
+silver_ore,Silver Ore,ore,3,14.61,18,10,44.4,1.7,False
+gold_ore,Gold Ore,ore,3,21.2,26,15,42.3,1.75,False
+raw_diamond,Uncut Diamond,ore,4,30.66,37,22,40.5,1.75,False
+ice_crystal,Glacier Ice Crystal,ore,4,36.56,44,26,40.9,2.0,False
+ancient_relic,Ancient Yeti Relic,luxury,4,56.02,68,40,41.2,1.5,False
+firewood,Split Firewood,intermediate,1,9.0,11,6,45.5,2.0,True
+pine_planks,Pine Planks,intermediate,1,16.4,20,11,45.0,1.75,False
+flour_sack,Fine Flour,intermediate,2,21.37,26,15,42.3,2.0,False
+iron_ingot,Iron Ingot,intermediate,2,36.09,44,25,43.2,1.75,False
+gold_ingot,Gold Ingot,intermediate,4,73.67,89,53,40.4,1.75,False
+steel_ingot,Tempered Steel Ingot,intermediate,3,98.72,119,71,40.3,1.85,False
+iron_nails,Box of Iron Nails,intermediate,2,41.74,51,30,41.2,1.7,False
+wool_cloth,Heavy Wool Cloth,intermediate,2,36.07,44,25,43.2,1.95,False
+fish_stew,Hot Fish Stew,food,1,20.0,24,14,41.7,1.8,True
+smoked_fish,Smoked Glacier Fish,food,2,29.87,36,21,41.7,2.0,False
+artisan_bread,Artisan Loaf Bread,food,2,37.93,46,26,43.5,2.0,True
+alpine_cheese,Aged Alpine Cheese,food,2,32.63,40,23,42.5,1.9,False
+warmth_tea,Winter Warmth Tea,food,2,29.61,36,21,41.7,2.0,True
+healing_salve,Healing Salve,food,3,38.32,46,27,41.3,1.85,False
+repair_kit,Tool Repair Kit,gear,2,58.67,71,42,40.8,1.65,False
+iron_axe,Iron Battle Axe,gear,3,104.22,126,75,40.5,1.75,False
+kite_shield,Alpine Kite Shield,gear,3,124.83,150,89,40.7,1.8,False
+winter_coat,Heavy Winter Coat,gear,3,88.63,107,63,41.1,2.0,False
+yeti_crown,Sovereign Yeti Crown,luxury,4,371.07,446,267,40.1,1.6,False

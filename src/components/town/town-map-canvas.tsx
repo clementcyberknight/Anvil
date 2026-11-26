@@ -1,82 +1,92 @@
 import {
-  Atlas,
-  BlendMode,
-  BlurStyle,
-  Canvas,
-  FilterMode,
-  Group,
-  MipmapMode,
-  Oval,
-  PaintStyle,
-  Picture,
-  Skia,
-  type SkImage,
-  type SkPicture,
-  StrokeCap,
-  StrokeJoin,
-  TileMode,
-  useClock,
-  useImage,
-  useRectBuffer,
-  useRSXformBuffer,
-} from '@shopify/react-native-skia';
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
-import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+    Atlas,
+    BlendMode,
+    BlurStyle,
+    Canvas,
+    FilterMode,
+    Group,
+    MipmapMode,
+    Oval,
+    PaintStyle,
+    Picture,
+    Skia,
+    type SkImage,
+    type SkPicture,
+    StrokeCap,
+    StrokeJoin,
+    TileMode,
+    useClock,
+    useImage,
+    useRectBuffer,
+    useRSXformBuffer,
+} from "@shopify/react-native-skia";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import {
-  cancelAnimation,
-  Easing,
-  useDerivedValue,
-  useReducedMotion,
-  useSharedValue,
-  withDecay,
-  withTiming,
-} from 'react-native-reanimated';
-import { scheduleOnRN } from 'react-native-worklets';
+    cancelAnimation,
+    Easing,
+    useDerivedValue,
+    useReducedMotion,
+    useSharedValue,
+    withDecay,
+    withTiming,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
-import { TOWN_ATLAS_FRAMES, type TownSpriteKey } from '@/game/town-atlas';
-import type { StoredLandPatch } from '@/game/town-db';
 import {
-  advanceVillagerRoute,
-  createInitialVillagerRoutes,
-  packVillagerRoutesToFlatBuffer,
-  TOWN_VILLAGERS,
-  VILLAGER_BUFFER_STRIDE,
-  type VillagerRouteSegment,
-} from '@/game/town-villagers';
-import type { Season } from '@/game/types';
+    resolveCropSpriteKey,
+    VALLEY_WORLD_NODES,
+    type ValleyPlantedCrop,
+} from "@/game/economy-engine";
+import { RESOURCE_ATLAS_FRAMES } from "@/game/resource-atlas";
 import {
-  VILLAGER_CELL_SIZE,
-  VILLAGER_FEET_ANCHOR_X,
-  VILLAGER_FEET_ANCHOR_Y,
-  VILLAGER_FRAMES_PER_DIR,
-} from '@/game/villager-atlas';
+    TOWN_ATLAS_FRAMES,
+    TOWN_SUMMER_ATLAS_FRAMES,
+    type TownSpriteKey,
+} from "@/game/town-atlas";
+import type { StoredLandPatch } from "@/game/town-db";
 import {
-  BLOCK_GRID_SIZE,
-  getTreeGrowthProgress,
-  isBlockBlockedForSoil,
-  type StoredValleyBuilding,
-  VALLEY_BLOCK_COLS,
-  VALLEY_BLOCK_PX,
-  VALLEY_BLOCK_ROWS,
-  VALLEY_BORDER_BLOCKS,
-  VALLEY_BORDER_X,
-  VALLEY_BORDER_Y,
-  VALLEY_CULL_BUFFER_BLOCKS,
-  VALLEY_LAKE_ZONE,
-  VALLEY_PLAYABLE_BOUNDS,
-  VALLEY_PLAZA_CENTER,
-  VALLEY_SPAWN_FOCUS_X,
-  VALLEY_SPAWN_FOCUS_Y,
-  VALLEY_STREET_PROPS,
-  VALLEY_STREET_SEGMENTS,
-  VALLEY_TILE_COLS,
-  VALLEY_TILE_PX,
-  VALLEY_TILE_ROWS,
-  VALLEY_WORLD_HEIGHT,
-  VALLEY_WORLD_WIDTH,
-  type ValleyPlantedTree,
-} from '@/game/valley-zones';
+    advanceVillagerRoute,
+    createInitialVillagerRoutes,
+    packVillagerRoutesToFlatBuffer,
+    TOWN_VILLAGERS,
+    VILLAGER_BUFFER_STRIDE,
+    type VillagerRouteSegment,
+} from "@/game/town-villagers";
+import type { Season } from "@/game/types";
+import {
+    BLOCK_GRID_SIZE,
+    getTreeGrowthProgress,
+    isBlockBlockedForSoil,
+    type StoredValleyBuilding,
+    VALLEY_BLOCK_COLS,
+    VALLEY_BLOCK_PX,
+    VALLEY_BLOCK_ROWS,
+    VALLEY_BORDER_BLOCKS,
+    VALLEY_BORDER_X,
+    VALLEY_BORDER_Y,
+    VALLEY_CULL_BUFFER_BLOCKS,
+    VALLEY_LAKE_ZONE,
+    VALLEY_PLAYABLE_BOUNDS,
+    VALLEY_PLAZA_CENTER,
+    VALLEY_SPAWN_FOCUS_X,
+    VALLEY_SPAWN_FOCUS_Y,
+    VALLEY_STREET_PROPS,
+    VALLEY_STREET_SEGMENTS,
+    VALLEY_TILE_COLS,
+    VALLEY_TILE_PX,
+    VALLEY_TILE_ROWS,
+    VALLEY_WORLD_HEIGHT,
+    VALLEY_WORLD_WIDTH,
+    type ValleyPlantedTree,
+} from "@/game/valley-zones";
+import {
+    VILLAGER_CELL_SIZE,
+    VILLAGER_FEET_ANCHOR_X,
+    VILLAGER_FEET_ANCHOR_Y,
+    VILLAGER_FRAMES_PER_DIR,
+} from "@/game/villager-atlas";
 
 const ZOOM_EASE = Easing.bezier(0.22, 1, 0.36, 1);
 const INITIAL_SCALE = 0.54;
@@ -84,7 +94,9 @@ const MAX_ZOOM_OUT_HORIZONTAL_BLOCKS = 10;
 const MAX_ZOOM = 1.9;
 const HYSTERESIS_MARGIN_BLOCKS = 2;
 const VILLAGER_COUNT = TOWN_VILLAGERS.length;
-const NPC_SPRITE_SCALE = 0.68;
+
+// Adjusted for 92px cell size in expanded 22-role villagers-atlas.webp (~84px world height)
+const NPC_SPRITE_SCALE = 0.91;
 const FOCUS_ZOOM_MIN_SCALE = 0.96;
 
 const MIN_TOTAL_BX = -VALLEY_BORDER_BLOCKS;
@@ -123,6 +135,27 @@ interface DepthSortedProp {
   readonly flipX: boolean;
 }
 
+export interface NodeCooldownEntry {
+  readonly id: string;
+  readonly readyAtMs: number;
+}
+
+const WORLD_NODE_HIT_BOXES: readonly {
+  readonly id: string;
+  readonly x: number;
+  readonly y: number;
+  readonly radiusSq: number;
+}[] = VALLEY_WORLD_NODES.map((node) => {
+  const hitR = node.drawSize * 0.56;
+
+  return {
+    id: node.id,
+    x: node.x,
+    y: node.y,
+    radiusSq: hitR * hitR,
+  };
+});
+
 interface TownMapCanvasProps {
   readonly season: Season;
   readonly nowMs: number;
@@ -131,17 +164,21 @@ interface TownMapCanvasProps {
   readonly isEditPlacementValid: boolean;
   readonly placedPatches: readonly StoredLandPatch[];
   readonly plantedTrees: readonly ValleyPlantedTree[];
+  readonly plantedCrops: readonly ValleyPlantedCrop[];
+  readonly nodeCooldowns: readonly NodeCooldownEntry[];
   readonly focusedVillagerIndex: number | null;
   readonly onSelectVillager: (
     villagerIndex: number | null,
-    targetNodeId?: string
+    targetNodeId?: string,
   ) => void;
   readonly onMoveEditingBuilding: (blockX: number, blockY: number) => void;
+  readonly onHarvestWorldNode: (nodeId: string) => void;
+  readonly onOpenTownHall: () => void;
   readonly onTileTap: (
     blockX: number,
     blockY: number,
     tileX: number,
-    tileY: number
+    tileY: number,
   ) => void;
   readonly onBlockLongPress: (blockX: number, blockY: number) => void;
 }
@@ -157,9 +194,9 @@ function computeCullWindow(
   camYVal: number,
   scaleVal: number,
   viewW: number,
-  viewH: number
+  viewH: number,
 ): VisibleBlockWindow {
-  'worklet';
+  "worklet";
   const viewLeft = -camXVal / scaleVal;
   const viewTop = -camYVal / scaleVal;
   const viewRight = (viewW - camXVal) / scaleVal;
@@ -196,15 +233,15 @@ function resolveTreeVisualScale(progress: number): number {
 }
 
 function resolveTreeSpriteKey(season: Season, progress: number): TownSpriteKey {
-  if (season === 'SUMMER') {
-    return 'summerPine';
+  if (season === "SUMMER") {
+    return "summerPine";
   }
 
   if (progress < 0.65) {
-    return 'pineSapling';
+    return "pineSapling";
   }
 
-  return 'pineTree';
+  return "pineTree";
 }
 
 /**
@@ -226,11 +263,14 @@ function recordVisibleWorldPicture(
   lakeImage: SkImage | null,
   soilImage: SkImage | null,
   townAtlasImage: SkImage | null,
+  resourcesAtlasImage: SkImage | null,
   buildings: readonly StoredValleyBuilding[],
   editingBuilding: StoredValleyBuilding | null,
   isEditPlacementValid: boolean,
   placedPatches: readonly StoredLandPatch[],
-  plantedTrees: readonly ValleyPlantedTree[]
+  plantedTrees: readonly ValleyPlantedTree[],
+  plantedCrops: readonly ValleyPlantedCrop[],
+  nodeCooldowns: readonly NodeCooldownEntry[],
 ): SkPicture | null {
   if (meadowImage === null) {
     return null;
@@ -249,7 +289,7 @@ function recordVisibleWorldPicture(
     TileMode.Repeat,
     TileMode.Repeat,
     FilterMode.Linear,
-    MipmapMode.Linear
+    MipmapMode.Linear,
   );
 
   const meadowPaint = Skia.Paint();
@@ -268,7 +308,7 @@ function recordVisibleWorldPicture(
       TileMode.Repeat,
       TileMode.Repeat,
       FilterMode.Linear,
-      MipmapMode.Linear
+      MipmapMode.Linear,
     );
 
     const forestPaint = Skia.Paint();
@@ -281,9 +321,9 @@ function recordVisibleWorldPicture(
     const clearingMaskPaint = Skia.Paint();
 
     clearingMaskPaint.setAntiAlias(true);
-    clearingMaskPaint.setColor(Skia.Color('#FFFFFF'));
+    clearingMaskPaint.setColor(Skia.Color("#FFFFFF"));
     clearingMaskPaint.setMaskFilter(
-      Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 26, true)
+      Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 26, true),
     );
 
     const maskedMeadowPaint = Skia.Paint();
@@ -299,12 +339,12 @@ function recordVisibleWorldPicture(
           VALLEY_PLAYABLE_BOUNDS.x - 16,
           VALLEY_PLAYABLE_BOUNDS.y - 16,
           VALLEY_PLAYABLE_BOUNDS.width + 32,
-          VALLEY_PLAYABLE_BOUNDS.height + 32
+          VALLEY_PLAYABLE_BOUNDS.height + 32,
         ),
         140,
-        140
+        140,
       ),
-      clearingMaskPaint
+      clearingMaskPaint,
     );
     canvas.drawRect(winRect, maskedMeadowPaint);
     canvas.restore();
@@ -324,8 +364,10 @@ function recordVisibleWorldPicture(
     const streetLayerBounds = Skia.XYWHRect(
       Math.max(winX, STREET_MIN_X - 60),
       Math.max(winY, STREET_MIN_Y - 60),
-      Math.min(winX + winW, STREET_MAX_X + 60) - Math.max(winX, STREET_MIN_X - 60),
-      Math.min(winY + winH, STREET_MAX_Y + 60) - Math.max(winY, STREET_MIN_Y - 60)
+      Math.min(winX + winW, STREET_MAX_X + 60) -
+        Math.max(winX, STREET_MIN_X - 60),
+      Math.min(winY + winH, STREET_MAX_Y + 60) -
+        Math.max(winY, STREET_MIN_Y - 60),
     );
 
     const rimPaint = Skia.Paint();
@@ -336,12 +378,14 @@ function recordVisibleWorldPicture(
     rimPaint.setStrokeJoin(StrokeJoin.Round);
     rimPaint.setColor(
       Skia.Color(
-        season === 'WINTER'
-          ? 'rgba(136, 166, 206, 0.36)'
-          : 'rgba(138, 108, 56, 0.38)'
-      )
+        season === "WINTER"
+          ? "rgba(136, 166, 206, 0.36)"
+          : "rgba(138, 108, 56, 0.38)",
+      ),
     );
-    rimPaint.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 10, true));
+    rimPaint.setMaskFilter(
+      Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 10, true),
+    );
 
     for (let i = 0; i < VALLEY_STREET_SEGMENTS.length; i += 1) {
       const seg = VALLEY_STREET_SEGMENTS[i];
@@ -356,17 +400,17 @@ function recordVisibleWorldPicture(
     streetMaskStroke.setStyle(PaintStyle.Stroke);
     streetMaskStroke.setStrokeCap(StrokeCap.Round);
     streetMaskStroke.setStrokeJoin(StrokeJoin.Round);
-    streetMaskStroke.setColor(Skia.Color('#FFFFFF'));
+    streetMaskStroke.setColor(Skia.Color("#FFFFFF"));
     streetMaskStroke.setMaskFilter(
-      Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 8, true)
+      Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 8, true),
     );
 
     const streetMaskFill = Skia.Paint();
 
     streetMaskFill.setAntiAlias(true);
-    streetMaskFill.setColor(Skia.Color('#FFFFFF'));
+    streetMaskFill.setColor(Skia.Color("#FFFFFF"));
     streetMaskFill.setMaskFilter(
-      Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 10, true)
+      Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 10, true),
     );
 
     canvas.saveLayer(undefined, streetLayerBounds);
@@ -383,16 +427,16 @@ function recordVisibleWorldPicture(
         VALLEY_PLAZA_CENTER.x - VALLEY_PLAZA_CENTER.rx,
         VALLEY_PLAZA_CENTER.y - VALLEY_PLAZA_CENTER.ry,
         VALLEY_PLAZA_CENTER.rx * 2,
-        VALLEY_PLAZA_CENTER.ry * 2
+        VALLEY_PLAZA_CENTER.ry * 2,
       ),
-      streetMaskFill
+      streetMaskFill,
     );
 
     const streetShader = streetImage.makeShaderOptions(
       TileMode.Repeat,
       TileMode.Repeat,
       FilterMode.Linear,
-      MipmapMode.Linear
+      MipmapMode.Linear,
     );
 
     const streetFillPaint = Skia.Paint();
@@ -425,9 +469,9 @@ function recordVisibleWorldPicture(
         VALLEY_LAKE_ZONE.x,
         VALLEY_LAKE_ZONE.y,
         VALLEY_LAKE_ZONE.width,
-        VALLEY_LAKE_ZONE.height
+        VALLEY_LAKE_ZONE.height,
       ),
-      lakePaint
+      lakePaint,
     );
   }
 
@@ -444,10 +488,7 @@ function recordVisibleWorldPicture(
     for (let i = 0; i < placedPatches.length; i += 1) {
       const p = placedPatches[i];
 
-      if (
-        p.kind !== 'PLANTING' ||
-        isBlockBlockedForSoil(p.blockX, p.blockY)
-      ) {
+      if (p.kind !== "PLANTING" || isBlockBlockedForSoil(p.blockX, p.blockY)) {
         continue;
       }
 
@@ -482,21 +523,21 @@ function recordVisibleWorldPicture(
         layerLeft,
         layerTop,
         Math.max(1, layerRight - layerLeft),
-        Math.max(1, layerBottom - layerTop)
+        Math.max(1, layerBottom - layerTop),
       );
 
       const maskPaint = Skia.Paint();
 
       maskPaint.setAntiAlias(true);
-      maskPaint.setColor(Skia.Color('#FFFFFF'));
+      maskPaint.setColor(Skia.Color("#FFFFFF"));
       maskPaint.setMaskFilter(
-        Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 14, true)
+        Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 14, true),
       );
 
       const corePaint = Skia.Paint();
 
       corePaint.setAntiAlias(true);
-      corePaint.setColor(Skia.Color('#FFFFFF'));
+      corePaint.setColor(Skia.Color("#FFFFFF"));
 
       const hasNeighbor = (bx: number, by: number): boolean =>
         occupied.has(by * VALLEY_BLOCK_COLS + bx);
@@ -527,12 +568,12 @@ function recordVisibleWorldPicture(
               x + insetLeft,
               y + insetTop,
               VALLEY_BLOCK_PX - insetLeft - insetRight,
-              VALLEY_BLOCK_PX - insetTop - insetBottom
+              VALLEY_BLOCK_PX - insetTop - insetBottom,
             ),
             26,
-            26
+            26,
           ),
-          maskPaint
+          maskPaint,
         );
 
         if (topOpen) {
@@ -545,7 +586,7 @@ function recordVisibleWorldPicture(
 
             canvas.drawOval(
               Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint
+              maskPaint,
             );
           }
         }
@@ -560,7 +601,7 @@ function recordVisibleWorldPicture(
 
             canvas.drawOval(
               Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint
+              maskPaint,
             );
           }
         }
@@ -575,7 +616,7 @@ function recordVisibleWorldPicture(
 
             canvas.drawOval(
               Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint
+              maskPaint,
             );
           }
         }
@@ -590,7 +631,7 @@ function recordVisibleWorldPicture(
 
             canvas.drawOval(
               Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint
+              maskPaint,
             );
           }
         }
@@ -611,9 +652,9 @@ function recordVisibleWorldPicture(
             x + insetLeft,
             y + insetTop,
             VALLEY_BLOCK_PX - insetLeft - insetRight,
-            VALLEY_BLOCK_PX - insetTop - insetBottom
+            VALLEY_BLOCK_PX - insetTop - insetBottom,
           ),
-          corePaint
+          corePaint,
         );
       }
 
@@ -621,7 +662,7 @@ function recordVisibleWorldPicture(
         TileMode.Repeat,
         TileMode.Repeat,
         FilterMode.Linear,
-        MipmapMode.Linear
+        MipmapMode.Linear,
       );
 
       const soilPaint = Skia.Paint();
@@ -646,9 +687,9 @@ function recordVisibleWorldPicture(
     padFillPaint.setColor(
       Skia.Color(
         isEditPlacementValid
-          ? 'rgba(64, 167, 252, 0.24)'
-          : 'rgba(239, 68, 68, 0.30)'
-      )
+          ? "rgba(64, 167, 252, 0.24)"
+          : "rgba(239, 68, 68, 0.30)",
+      ),
     );
 
     const padStrokePaint = Skia.Paint();
@@ -657,7 +698,7 @@ function recordVisibleWorldPicture(
     padStrokePaint.setStyle(PaintStyle.Stroke);
     padStrokePaint.setStrokeWidth(7);
     padStrokePaint.setColor(
-      Skia.Color(isEditPlacementValid ? '#40A7FC' : '#EF4444')
+      Skia.Color(isEditPlacementValid ? "#40A7FC" : "#EF4444"),
     );
 
     const padRRect = Skia.RRectXY(
@@ -665,14 +706,126 @@ function recordVisibleWorldPicture(
         padX + 10,
         padY + 10,
         VALLEY_BLOCK_PX - 20,
-        VALLEY_BLOCK_PX - 20
+        VALLEY_BLOCK_PX - 20,
       ),
       26,
-      26
+      26,
     );
 
     canvas.drawRRect(padRRect, padFillPaint);
     canvas.drawRRect(padRRect, padStrokePaint);
+  }
+
+  // Pass 4.6: Planted Crops & Interactive World Resource Nodes (resources-atlas.webp)
+  if (resourcesAtlasImage !== null) {
+    const resPaint = Skia.Paint();
+
+    resPaint.setAntiAlias(true);
+
+    const dimmedPaint = Skia.Paint();
+
+    dimmedPaint.setAntiAlias(true);
+    dimmedPaint.setAlphaf(0.35);
+
+    const nodeShadowPaint = Skia.Paint();
+
+    nodeShadowPaint.setAntiAlias(true);
+    nodeShadowPaint.setColor(
+      Skia.Color(
+        season === "WINTER"
+          ? "rgba(116, 152, 206, 0.26)"
+          : "rgba(34, 72, 38, 0.22)",
+      ),
+    );
+
+    const minCropTx = cullWindow.minBx * BLOCK_GRID_SIZE;
+    const maxCropTx = (cullWindow.maxBx + 1) * BLOCK_GRID_SIZE - 1;
+    const minCropTy = cullWindow.minBy * BLOCK_GRID_SIZE;
+    const maxCropTy = (cullWindow.maxBy + 1) * BLOCK_GRID_SIZE - 1;
+
+    for (let i = 0; i < plantedCrops.length; i += 1) {
+      const crop = plantedCrops[i];
+
+      if (
+        crop.tileX < minCropTx ||
+        crop.tileX > maxCropTx ||
+        crop.tileY < minCropTy ||
+        crop.tileY > maxCropTy
+      ) {
+        continue;
+      }
+
+      const spriteKey = resolveCropSpriteKey(crop, season, nowMs);
+      const frame = RESOURCE_ATLAS_FRAMES[spriteKey];
+      const drawSize = 78;
+      const cx = VALLEY_BORDER_X + (crop.tileX + 0.5) * VALLEY_TILE_PX;
+      const cy = VALLEY_BORDER_Y + (crop.tileY + 0.52) * VALLEY_TILE_PX;
+
+      canvas.drawImageRect(
+        resourcesAtlasImage,
+        Skia.XYWHRect(frame.x, frame.y, frame.width, frame.height),
+        Skia.XYWHRect(
+          cx - drawSize * 0.5,
+          cy - drawSize * 0.58,
+          drawSize,
+          drawSize,
+        ),
+        resPaint,
+      );
+    }
+
+    const cooldownMap = new Map<string, number>();
+
+    for (let i = 0; i < nodeCooldowns.length; i += 1) {
+      cooldownMap.set(nodeCooldowns[i].id, nodeCooldowns[i].readyAtMs);
+    }
+
+    for (let i = 0; i < VALLEY_WORLD_NODES.length; i += 1) {
+      const node = VALLEY_WORLD_NODES[i];
+
+      if (
+        node.x < winX - 140 ||
+        node.x > winX + winW + 140 ||
+        node.y < winY - 140 ||
+        node.y > winY + winH + 140
+      ) {
+        continue;
+      }
+
+      const resolvedKey =
+        season === "SUMMER" && node.spriteKey === "nodeBerryBush"
+          ? "nodeBerryBushSummer"
+          : node.spriteKey;
+
+      const frame = RESOURCE_ATLAS_FRAMES[resolvedKey];
+      const readyAt = cooldownMap.get(node.id) ?? 0;
+      const isCoolingDown = readyAt > nowMs;
+      const halfSize = node.drawSize * 0.5;
+
+      if (node.kind !== "FISH_HOLE") {
+        canvas.drawOval(
+          Skia.XYWHRect(
+            node.x - halfSize * 0.72,
+            node.y + halfSize * 0.36,
+            node.drawSize * 0.72,
+            node.drawSize * 0.24,
+          ),
+          nodeShadowPaint,
+        );
+      }
+
+      canvas.drawImageRect(
+        resourcesAtlasImage,
+        Skia.XYWHRect(frame.x, frame.y, frame.width, frame.height),
+        Skia.XYWHRect(
+          node.x - halfSize,
+          node.y - halfSize * 1.08,
+          node.drawSize,
+          node.drawSize,
+        ),
+        isCoolingDown ? dimmedPaint : resPaint,
+      );
+    }
   }
 
   // Pass 5: Unified Viewport-Culled 2.5D Depth-Sorted Buildings + Growing Pine Trees
@@ -697,7 +850,10 @@ function recordVisibleWorldPicture(
       }
 
       const anchorX = VALLEY_BORDER_X + (bld.blockX + 0.5) * VALLEY_BLOCK_PX;
-      const baseAnchorY = VALLEY_BORDER_Y + (bld.blockY + 0.88) * VALLEY_BLOCK_PX;
+
+      const baseAnchorY =
+        VALLEY_BORDER_Y + (bld.blockY + 0.88) * VALLEY_BLOCK_PX;
+
       const anchorY = isEdited ? baseAnchorY - 12 : baseAnchorY;
       const flipX = bld.facing === 1 || bld.facing === 3;
 
@@ -787,10 +943,10 @@ function recordVisibleWorldPicture(
       shadowPaint.setAntiAlias(true);
       shadowPaint.setColor(
         Skia.Color(
-          season === 'WINTER'
-            ? 'rgba(116, 152, 206, 0.30)'
-            : 'rgba(34, 72, 38, 0.24)'
-        )
+          season === "WINTER"
+            ? "rgba(116, 152, 206, 0.30)"
+            : "rgba(34, 72, 38, 0.24)",
+        ),
       );
 
       const lanternGlowPaint = Skia.Paint();
@@ -798,22 +954,25 @@ function recordVisibleWorldPicture(
       lanternGlowPaint.setAntiAlias(true);
       lanternGlowPaint.setColor(
         Skia.Color(
-          season === 'WINTER'
-            ? 'rgba(255, 214, 102, 0.28)'
-            : 'rgba(255, 224, 130, 0.18)'
-        )
+          season === "WINTER"
+            ? "rgba(255, 214, 102, 0.28)"
+            : "rgba(255, 224, 130, 0.18)",
+        ),
       );
       lanternGlowPaint.setMaskFilter(
-        Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 18, true)
+        Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 18, true),
       );
 
       const spritePaint = Skia.Paint();
 
       spritePaint.setAntiAlias(true);
 
+      const activeAtlasFrames =
+        season === "SUMMER" ? TOWN_SUMMER_ATLAS_FRAMES : TOWN_ATLAS_FRAMES;
+
       for (let i = 0; i < props.length; i += 1) {
         const item = props[i];
-        const frame = TOWN_ATLAS_FRAMES[item.spriteKey];
+        const frame = activeAtlasFrames[item.spriteKey];
         const scale = item.drawWidth / frame.width;
         const drawHeight = frame.height * scale;
         const dstX = item.anchorX - item.drawWidth * frame.anchorX;
@@ -825,9 +984,9 @@ function recordVisibleWorldPicture(
               item.anchorX - item.glowRadius,
               item.anchorY - item.glowRadius * 0.52,
               item.glowRadius * 2,
-              item.glowRadius * 1.04
+              item.glowRadius * 1.04,
             ),
-            lanternGlowPaint
+            lanternGlowPaint,
           );
         }
 
@@ -836,16 +995,16 @@ function recordVisibleWorldPicture(
             item.anchorX - item.shadowRx,
             item.anchorY - item.shadowRy + item.shadowOffsetY,
             item.shadowRx * 2,
-            item.shadowRy * 2
+            item.shadowRy * 2,
           ),
-          shadowPaint
+          shadowPaint,
         );
 
         const srcRect = Skia.XYWHRect(
           frame.x,
           frame.y,
           frame.width,
-          frame.height
+          frame.height,
         );
 
         const dstRect = Skia.XYWHRect(dstX, dstY, item.drawWidth, drawHeight);
@@ -875,9 +1034,13 @@ export function TownMapCanvas({
   isEditPlacementValid,
   placedPatches,
   plantedTrees,
+  plantedCrops,
+  nodeCooldowns,
   focusedVillagerIndex,
   onSelectVillager,
   onMoveEditingBuilding,
+  onHarvestWorldNode,
+  onOpenTownHall,
   onTileTap,
   onBlockLongPress,
 }: TownMapCanvasProps) {
@@ -886,47 +1049,55 @@ export function TownMapCanvas({
   const clock = useClock();
 
   const winterSnowImage = useImage(
-    require('@/assets/land-asset/compiled/winter-snow-tile.webp')
+    require("@/assets/land-asset/compiled/winter-snow-tile.webp"),
   );
 
   const summerGrassImage = useImage(
-    require('@/assets/land-asset/compiled/summer-grass-tile.webp')
+    require("@/assets/land-asset/compiled/summer-grass-tile.webp"),
   );
 
   const winterForestImage = useImage(
-    require('@/assets/land-asset/compiled/winter-forest-tile.webp')
+    require("@/assets/land-asset/compiled/winter-forest-tile.webp"),
   );
 
   const summerForestImage = useImage(
-    require('@/assets/land-asset/compiled/summer-forest-tile.webp')
+    require("@/assets/land-asset/compiled/summer-forest-tile.webp"),
   );
 
   const winterStreetImage = useImage(
-    require('@/assets/land-asset/compiled/winter-street-tile.webp')
+    require("@/assets/land-asset/compiled/winter-street-tile.webp"),
   );
 
   const summerStreetImage = useImage(
-    require('@/assets/land-asset/compiled/summer-street-tile.webp')
+    require("@/assets/land-asset/compiled/summer-street-tile.webp"),
   );
 
   const winterLakeImage = useImage(
-    require('@/assets/land-asset/compiled/winter-lake.webp')
+    require("@/assets/land-asset/compiled/winter-lake.webp"),
   );
 
   const summerLakeImage = useImage(
-    require('@/assets/land-asset/compiled/summer-lake.webp')
+    require("@/assets/land-asset/compiled/summer-lake.webp"),
   );
 
   const soilImage = useImage(
-    require('@/assets/land-asset/compiled/loamy-soil.webp')
+    require("@/assets/land-asset/compiled/loamy-soil.webp"),
   );
 
   const townAtlasImage = useImage(
-    require('@/assets/game_asset/compiled/town-atlas.webp')
+    require("@/assets/game_asset/compiled/town-atlas.webp"),
+  );
+
+  const townSummerAtlasImage = useImage(
+    require("@/assets/game_asset/compiled/town-atlas-summer.webp"),
   );
 
   const villagersAtlasImage = useImage(
-    require('@/assets/villager-asset/compiled/villagers-atlas.webp')
+    require("@/assets/villager-asset/compiled/villagers-atlas.webp"),
+  );
+
+  const resourcesAtlasImage = useImage(
+    require("@/assets/resource-asset/compiled/resources-atlas.webp"),
   );
 
   const initialRoutes = useMemo(() => createInitialVillagerRoutes(), []);
@@ -935,16 +1106,17 @@ export function TownMapCanvas({
   const mountEpochMsRef = useRef<number>(0);
 
   const villagerRouteBuffer = useSharedValue<number[]>(
-    packVillagerRoutesToFlatBuffer(initialRoutes)
+    packVillagerRoutesToFlatBuffer(initialRoutes),
   );
 
-  const focusedIdxShared = useSharedValue<number>(
-    focusedVillagerIndex ?? -1
-  );
+  const focusedIdxShared = useSharedValue<number>(focusedVillagerIndex ?? -1);
 
   const isEditingBuildingShared = useSharedValue<boolean>(
-    editingBuilding !== null
+    editingBuilding !== null,
   );
+
+  const townHallBlockXShared = useSharedValue<number>(27);
+  const townHallBlockYShared = useSharedValue<number>(46);
 
   useEffect(() => {
     focusedIdxShared.set(focusedVillagerIndex ?? -1);
@@ -953,6 +1125,15 @@ export function TownMapCanvas({
   useEffect(() => {
     isEditingBuildingShared.set(editingBuilding !== null);
   }, [editingBuilding, isEditingBuildingShared]);
+
+  useEffect(() => {
+    const hall = buildings.find((b) => b.id === "bld_town_hall");
+
+    if (hall !== undefined) {
+      townHallBlockXShared.set(hall.blockX);
+      townHallBlockYShared.set(hall.blockY);
+    }
+  }, [buildings, townHallBlockXShared, townHallBlockYShared]);
 
   // Exact-wakeup JS scheduler: wakes ONLY when a villager finishes a walk leg or pause (0 React re-renders)
   useEffect(() => {
@@ -978,7 +1159,11 @@ export function TownMapCanvas({
 
         if (nowClockMs >= seg.pauseUntilClockMs) {
           routeStepCounterRef.current += 1;
-          seg = advanceVillagerRoute(seg, nowClockMs, routeStepCounterRef.current);
+          seg = advanceVillagerRoute(
+            seg,
+            nowClockMs,
+            routeStepCounterRef.current,
+          );
           current[i] = seg;
           changed = true;
         }
@@ -1011,7 +1196,7 @@ export function TownMapCanvas({
   }, [villagerRouteBuffer]);
 
   const villagerSprites = useRectBuffer(VILLAGER_COUNT, (rect, index) => {
-    'worklet';
+    "worklet";
     const buf = villagerRouteBuffer.get();
     const base = index * VILLAGER_BUFFER_STRIDE;
     const roleRow = buf[base];
@@ -1040,14 +1225,16 @@ export function TownMapCanvas({
       frameIdx = Math.floor(stepPhase) % VILLAGER_FRAMES_PER_DIR;
     }
 
-    const sx = (facingDir * VILLAGER_FRAMES_PER_DIR + frameIdx) * VILLAGER_CELL_SIZE;
+    const sx =
+      (facingDir * VILLAGER_FRAMES_PER_DIR + frameIdx) * VILLAGER_CELL_SIZE;
+
     const sy = roleRow * VILLAGER_CELL_SIZE;
 
     rect.setXYWH(sx, sy, VILLAGER_CELL_SIZE, VILLAGER_CELL_SIZE);
   });
 
   const villagerTransforms = useRSXformBuffer(VILLAGER_COUNT, (val, index) => {
-    'worklet';
+    "worklet";
     const buf = villagerRouteBuffer.get();
     const base = index * VILLAGER_BUFFER_STRIDE;
     const fromX = buf[base + 1];
@@ -1083,7 +1270,9 @@ export function TownMapCanvas({
 
     const spriteScale = NPC_SPRITE_SCALE;
     const tx = wx - VILLAGER_CELL_SIZE * VILLAGER_FEET_ANCHOR_X * spriteScale;
-    const ty = wy + bobY - VILLAGER_CELL_SIZE * VILLAGER_FEET_ANCHOR_Y * spriteScale;
+
+    const ty =
+      wy + bobY - VILLAGER_CELL_SIZE * VILLAGER_FEET_ANCHOR_Y * spriteScale;
 
     val.set(spriteScale, 0, tx, ty);
   });
@@ -1120,20 +1309,20 @@ export function TownMapCanvas({
   const minScale = Math.max(
     width / VALLEY_WORLD_WIDTH,
     height / VALLEY_WORLD_HEIGHT,
-    width / (MAX_ZOOM_OUT_HORIZONTAL_BLOCKS * VALLEY_BLOCK_PX)
+    width / (MAX_ZOOM_OUT_HORIZONTAL_BLOCKS * VALLEY_BLOCK_PX),
   );
 
   const initialScale = Math.max(minScale, INITIAL_SCALE);
 
   const clampX = (rawX: number, scale: number): number => {
-    'worklet';
+    "worklet";
     const minX = width - VALLEY_WORLD_WIDTH * scale;
 
     return Math.max(minX, Math.min(0, rawX));
   };
 
   const clampY = (rawY: number, scale: number): number => {
-    'worklet';
+    "worklet";
     const minY = height - VALLEY_WORLD_HEIGHT * scale;
 
     return Math.max(minY, Math.min(0, rawY));
@@ -1141,17 +1330,17 @@ export function TownMapCanvas({
 
   const initialX = clampX(
     width * 0.5 - VALLEY_SPAWN_FOCUS_X * initialScale,
-    initialScale
+    initialScale,
   );
 
   const initialY = clampY(
     height * 0.5 - VALLEY_SPAWN_FOCUS_Y * initialScale,
-    initialScale
+    initialScale,
   );
 
   const initialWindow = useMemo(
     () => computeCullWindow(initialX, initialY, initialScale, width, height),
-    [initialX, initialY, initialScale, width, height]
+    [initialX, initialY, initialScale, width, height],
   );
 
   const [cullWindow, setCullWindow] =
@@ -1169,16 +1358,20 @@ export function TownMapCanvas({
   const recMinBy = useSharedValue(initialWindow.minBy);
   const recMaxBy = useSharedValue(initialWindow.maxBy);
 
-  const activeMeadow =
-    season === 'WINTER' ? winterSnowImage : summerGrassImage;
+  const activeMeadow = season === "WINTER" ? winterSnowImage : summerGrassImage;
 
   const activeForest =
-    season === 'WINTER' ? winterForestImage : summerForestImage;
+    season === "WINTER" ? winterForestImage : summerForestImage;
 
   const activeStreet =
-    season === 'WINTER' ? winterStreetImage : summerStreetImage;
+    season === "WINTER" ? winterStreetImage : summerStreetImage;
 
-  const activeLake = season === 'WINTER' ? winterLakeImage : summerLakeImage;
+  const activeLake = season === "WINTER" ? winterLakeImage : summerLakeImage;
+
+  const activeTownAtlas =
+    season === "SUMMER"
+      ? (townSummerAtlasImage ?? townAtlasImage)
+      : townAtlasImage;
 
   const worldPicture = useMemo(
     () =>
@@ -1191,12 +1384,15 @@ export function TownMapCanvas({
         activeStreet,
         activeLake,
         soilImage,
-        townAtlasImage,
+        activeTownAtlas,
+        resourcesAtlasImage,
         buildings,
         editingBuilding,
         isEditPlacementValid,
         placedPatches,
-        plantedTrees
+        plantedTrees,
+        plantedCrops,
+        nodeCooldowns,
       ),
     [
       cullWindow,
@@ -1207,13 +1403,16 @@ export function TownMapCanvas({
       activeStreet,
       activeLake,
       soilImage,
-      townAtlasImage,
+      activeTownAtlas,
+      resourcesAtlasImage,
       buildings,
       editingBuilding,
       isEditPlacementValid,
       placedPatches,
       plantedTrees,
-    ]
+      plantedCrops,
+      nodeCooldowns,
+    ],
   );
 
   const cameraTransform = useDerivedValue(() => {
@@ -1288,7 +1487,7 @@ export function TownMapCanvas({
           velocity: event.velocityX,
           deceleration: 0.996,
           clamp: [minX, 0],
-        })
+        }),
       );
 
       camY.set(
@@ -1296,7 +1495,7 @@ export function TownMapCanvas({
           velocity: event.velocityY,
           deceleration: 0.996,
           clamp: [minY, 0],
-        })
+        }),
       );
     });
 
@@ -1314,7 +1513,7 @@ export function TownMapCanvas({
 
       const nextScale = Math.max(
         minScale,
-        Math.min(MAX_ZOOM, prevScale * event.scale)
+        Math.min(MAX_ZOOM, prevScale * event.scale),
       );
 
       const worldFocalX = (event.focalX - startX.get()) / prevScale;
@@ -1364,11 +1563,11 @@ export function TownMapCanvas({
       // 0. While moving/rotating a building, tapping any playable 4x4 block repositions the draft
       if (isEditingBuildingShared.get()) {
         const nextBlockX = Math.floor(
-          (worldX - VALLEY_BORDER_X) / VALLEY_BLOCK_PX
+          (worldX - VALLEY_BORDER_X) / VALLEY_BLOCK_PX,
         );
 
         const nextBlockY = Math.floor(
-          (worldY - VALLEY_BORDER_Y) / VALLEY_BLOCK_PX
+          (worldY - VALLEY_BORDER_Y) / VALLEY_BLOCK_PX,
         );
 
         if (
@@ -1424,7 +1623,11 @@ export function TownMapCanvas({
       if (bestIdx >= 0) {
         focusedIdxShared.set(bestIdx);
 
-        const nextScale = Math.min(MAX_ZOOM, Math.max(scale, FOCUS_ZOOM_MIN_SCALE));
+        const nextScale = Math.min(
+          MAX_ZOOM,
+          Math.max(scale, FOCUS_ZOOM_MIN_SCALE),
+        );
+
         const targetX = clampX(width * 0.5 - bestWx * nextScale, nextScale);
         const targetY = clampY(height * 0.42 - bestWy * nextScale, nextScale);
 
@@ -1452,8 +1655,32 @@ export function TownMapCanvas({
         return;
       }
 
+      // 2. Check if the player tapped any harvestable world resource node (Fish, Deadfall, Forage, Ore)
+      for (let i = 0; i < WORLD_NODE_HIT_BOXES.length; i += 1) {
+        const box = WORLD_NODE_HIT_BOXES[i];
+        const dx = worldX - box.x;
+        const dy = worldY - (box.y - 8);
+
+        if (dx * dx + dy * dy <= box.radiusSq) {
+          scheduleOnRN(onHarvestWorldNode, box.id);
+
+          return;
+        }
+      }
+
       const blockX = Math.floor((worldX - VALLEY_BORDER_X) / VALLEY_BLOCK_PX);
       const blockY = Math.floor((worldY - VALLEY_BORDER_Y) / VALLEY_BLOCK_PX);
+
+      // 3. Check if the player tapped the Town Hall to open Mayor Policy / Election / War Room
+      if (
+        blockX === townHallBlockXShared.get() &&
+        blockY === townHallBlockYShared.get()
+      ) {
+        scheduleOnRN(onOpenTownHall);
+
+        return;
+      }
+
       const tileX = Math.floor((worldX - VALLEY_BORDER_X) / VALLEY_TILE_PX);
       const tileY = Math.floor((worldY - VALLEY_BORDER_Y) / VALLEY_TILE_PX);
 
@@ -1494,20 +1721,20 @@ export function TownMapCanvas({
   const tapGestures = Gesture.Exclusive(
     longPressGesture,
     doubleTapGesture,
-    singleTapGesture
+    singleTapGesture,
   );
 
   const composedGesture = Gesture.Simultaneous(
     panGesture,
     pinchGesture,
-    tapGestures
+    tapGestures,
   );
 
   return (
     <View
       style={[
         styles.wrapper,
-        season === 'WINTER' ? styles.winterBg : styles.summerBg,
+        season === "WINTER" ? styles.winterBg : styles.summerBg,
       ]}
     >
       <GestureDetector gesture={composedGesture}>
@@ -1539,10 +1766,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   winterBg: {
-    backgroundColor: '#EBF4FF',
+    backgroundColor: "#EBF4FF",
   },
   summerBg: {
-    backgroundColor: '#76A63E',
+    backgroundColor: "#76A63E",
   },
   canvas: {
     flex: 1,

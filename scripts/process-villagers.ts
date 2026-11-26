@@ -13,14 +13,14 @@ const VILLAGER_ASSET_DIR = path.join(ROOT, 'assets', 'villager-asset');
 const OUTPUT_DIR = path.join(VILLAGER_ASSET_DIR, 'compiled');
 const GENERATED_TS_PATH = path.join(ROOT, 'src', 'game', 'villager-atlas.ts');
 
-// 16 columns (4 directions x 4 walk frames) x 17 roles at 120px = 1920 x 2040 (< 2048px GPU cap)
-const CELL_SIZE = 120;
+// 16 columns (4 directions x 4 walk frames) x 22 roles at 92px = 1472 x 2024 (< 2048px GPU cap)
+const CELL_SIZE = 92;
 const FRAMES_PER_DIR = 4;
 const DIRECTIONS_COUNT = 4; // 0: front, 1: right, 2: back, 3: left (mirrored right)
 const COLS_PER_ROLE = DIRECTIONS_COUNT * FRAMES_PER_DIR;
-const DRAW_INNER_MAX_W = 110;
-const DRAW_INNER_MAX_H = 110;
-const FEET_BASELINE_Y = 116;
+const DRAW_INNER_MAX_W = 84;
+const DRAW_INNER_MAX_H = 84;
+const FEET_BASELINE_Y = 89;
 
 const VILLAGER_SPECS: readonly VillagerSheetSpec[] = [
   {
@@ -107,6 +107,31 @@ const VILLAGER_SPECS: readonly VillagerSheetSpec[] = [
     role: 'unemployed',
     filename: 'Sleepy Yeti Wanderer Sprite Sheet.png',
     label: 'Drifter',
+  },
+  {
+    role: 'miner',
+    filename: 'Miner Yeti Walk Cycle.jfif',
+    label: 'Cave Miner',
+  },
+  {
+    role: 'shieldguard',
+    filename: 'Shieldguard Yeti Walk Cycle.jfif',
+    label: 'Shieldguard',
+  },
+  {
+    role: 'archer',
+    filename: 'Ice Archer Yeti Walk Cycle.jfif',
+    label: 'Ice-Archer',
+  },
+  {
+    role: 'ram',
+    filename: 'Timber Ram Sapper Yeti Walk Cycle.jfif',
+    label: 'Timber Ram Sapper',
+  },
+  {
+    role: 'apothecary',
+    filename: 'Field Apothecary Yeti Walk Cycle.jfif',
+    label: 'Field Apothecary',
   },
 ];
 
