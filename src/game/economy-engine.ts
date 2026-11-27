@@ -8,7 +8,7 @@ import {
 } from '@/game/valley-zones';
 
 /**
- * Anchored directly to our verified Quantitative Economy (economy-sim/out/anvil_economy_config.json):
+ * Anchored directly to our verified Quantitative Economy (config/economy-pricing.ts & config/anvil-economy-config.json):
  *   - Base Economic Unit U_0 = 120 FC / active hour (2.0 FC / min)
  *   - Starting Capital C_0   = 180 FC (verified 0% soft-lock at 5th-percentile Act I RNG)
  *   - NPC Ask (+20%) / NPC Bid (-28%), recursively clamped so multi-hop craft arbitrage = 0
@@ -96,7 +96,7 @@ export interface GatherOutcome {
 }
 
 /**
- * Verified zero-arbitrage item catalog synchronized with economy-sim/out/anvil_economy_config.json.
+ * Verified zero-arbitrage item catalog synchronized with config/anvil-economy-config.json.
  */
 export const ECONOMY_ITEMS: readonly EconomyItemSpec[] = [
   // Seeds

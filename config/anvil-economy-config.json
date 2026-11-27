@@ -1,0 +1,1187 @@
+{
+  "meta": {
+    "game": "Anvil",
+    "currency": "Frost Coins (FC)",
+    "baseLaborHourFc": 120,
+    "vpmBaseFc": 2,
+    "tierExponent": 0.78,
+    "startingCapitalFc": 180,
+    "seasonDurationHours": 72,
+    "npcAskMarkup": 0.2,
+    "npcBidDiscount": 0.28
+  },
+  "taxation": {
+    "mayorTaxBounds": {
+      "min": 0.05,
+      "default": 0.1,
+      "max": 0.18
+    },
+    "marketFeeBounds": {
+      "min": 0.04,
+      "default": 0.06,
+      "max": 0.12
+    },
+    "wealthUpkeepBracketsDaily": [
+      {
+        "maxFc": 1500,
+        "dailyRate": 0
+      },
+      {
+        "maxFc": 8000,
+        "dailyRate": 0.0035
+      },
+      {
+        "maxFc": 30000,
+        "dailyRate": 0.0085
+      },
+      {
+        "maxFc": null,
+        "dailyRate": 0.016
+      }
+    ]
+  },
+  "occupations": [
+    {
+      "id": "occ_ice_angler",
+      "name": "Lake & Ice Angler",
+      "tier": 1,
+      "upkeepRatio": 0.1,
+      "grossFcPerHour": 120,
+      "netFcPerHourBase": 97.2,
+      "actUnlocked": 1
+    },
+    {
+      "id": "occ_lumberjack",
+      "name": "Pine Lumberjack",
+      "tier": 1,
+      "upkeepRatio": 0.11,
+      "grossFcPerHour": 120,
+      "netFcPerHourBase": 96.12,
+      "actUnlocked": 1
+    },
+    {
+      "id": "occ_drifter_labor",
+      "name": "Day-Labor Porter",
+      "tier": 1,
+      "upkeepRatio": 0.08,
+      "grossFcPerHour": 120,
+      "netFcPerHourBase": 99.36,
+      "actUnlocked": 1
+    },
+    {
+      "id": "occ_farmer",
+      "name": "Valley Crop Farmer",
+      "tier": 1,
+      "upkeepRatio": 0.12,
+      "grossFcPerHour": 120,
+      "netFcPerHourBase": 95.04,
+      "actUnlocked": 2
+    },
+    {
+      "id": "occ_smokehouse",
+      "name": "Fish Smoker & Stew Chef",
+      "tier": 2,
+      "upkeepRatio": 0.13,
+      "grossFcPerHour": 206.06,
+      "netFcPerHourBase": 161.34,
+      "actUnlocked": 1
+    },
+    {
+      "id": "occ_sawyer",
+      "name": "Sawmill Operator",
+      "tier": 2,
+      "upkeepRatio": 0.12,
+      "grossFcPerHour": 206.06,
+      "netFcPerHourBase": 163.2,
+      "actUnlocked": 1
+    },
+    {
+      "id": "occ_miller",
+      "name": "Windmill Miller",
+      "tier": 2,
+      "upkeepRatio": 0.12,
+      "grossFcPerHour": 206.06,
+      "netFcPerHourBase": 163.2,
+      "actUnlocked": 2
+    },
+    {
+      "id": "occ_baker",
+      "name": "Cozy Baker",
+      "tier": 2,
+      "upkeepRatio": 0.13,
+      "grossFcPerHour": 206.06,
+      "netFcPerHourBase": 161.34,
+      "actUnlocked": 2
+    },
+    {
+      "id": "occ_rancher",
+      "name": "Yak Rancher & Dairy",
+      "tier": 2,
+      "upkeepRatio": 0.12,
+      "grossFcPerHour": 206.06,
+      "netFcPerHourBase": 163.2,
+      "actUnlocked": 2
+    },
+    {
+      "id": "occ_town_guard",
+      "name": "Town Watch Guard",
+      "tier": 2,
+      "upkeepRatio": 0.1,
+      "grossFcPerHour": 206.06,
+      "netFcPerHourBase": 166.91,
+      "actUnlocked": 2
+    },
+    {
+      "id": "occ_blacksmith",
+      "name": "Yeti Blacksmith",
+      "tier": 3,
+      "upkeepRatio": 0.14,
+      "grossFcPerHour": 282.71,
+      "netFcPerHourBase": 218.81,
+      "actUnlocked": 2
+    },
+    {
+      "id": "occ_builder",
+      "name": "Master Builder Crew",
+      "tier": 3,
+      "upkeepRatio": 0.12,
+      "grossFcPerHour": 282.71,
+      "netFcPerHourBase": 223.9,
+      "actUnlocked": 1
+    },
+    {
+      "id": "occ_apothecary",
+      "name": "Apothecary & Tailor",
+      "tier": 3,
+      "upkeepRatio": 0.14,
+      "grossFcPerHour": 282.71,
+      "netFcPerHourBase": 218.81,
+      "actUnlocked": 3
+    },
+    {
+      "id": "occ_banker",
+      "name": "Town Banker & Broker",
+      "tier": 3,
+      "upkeepRatio": 0.1,
+      "grossFcPerHour": 282.71,
+      "netFcPerHourBase": 228.99,
+      "actUnlocked": 2
+    },
+    {
+      "id": "occ_master_smelter",
+      "name": "Deep Blast Smelter",
+      "tier": 4,
+      "upkeepRatio": 0.15,
+      "grossFcPerHour": 353.82,
+      "netFcPerHourBase": 270.68,
+      "actUnlocked": 3
+    },
+    {
+      "id": "occ_jeweler",
+      "name": "Alpine Gem & Crown Jeweler",
+      "tier": 4,
+      "upkeepRatio": 0.15,
+      "grossFcPerHour": 353.82,
+      "netFcPerHourBase": 270.68,
+      "actUnlocked": 4
+    },
+    {
+      "id": "occ_greenhouse",
+      "name": "Sun-Glass Agronomist",
+      "tier": 4,
+      "upkeepRatio": 0.15,
+      "grossFcPerHour": 353.82,
+      "netFcPerHourBase": 270.68,
+      "actUnlocked": 4
+    }
+  ],
+  "items": [
+    {
+      "id": "seed_maize",
+      "name": "Maize Seeds",
+      "category": "seed",
+      "tier": 1,
+      "laborMinutes": 1.5,
+      "refPrice": 3,
+      "npcBuyPrice": 4,
+      "npcSellPrice": 2,
+      "winterMaxMult": 1.4,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "seed_wheat",
+      "name": "Wheat Seeds",
+      "category": "seed",
+      "tier": 1,
+      "laborMinutes": 1.5,
+      "refPrice": 3,
+      "npcBuyPrice": 4,
+      "npcSellPrice": 2,
+      "winterMaxMult": 1.4,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "seed_turnip",
+      "name": "Snow Turnip Seeds",
+      "category": "seed",
+      "tier": 1,
+      "laborMinutes": 2,
+      "refPrice": 4,
+      "npcBuyPrice": 5,
+      "npcSellPrice": 2,
+      "winterMaxMult": 1.6,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "seed_potato",
+      "name": "Frost Potato Seeds",
+      "category": "seed",
+      "tier": 1,
+      "laborMinutes": 2,
+      "refPrice": 4,
+      "npcBuyPrice": 5,
+      "npcSellPrice": 2,
+      "winterMaxMult": 1.5,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "seed_pine",
+      "name": "Pinecone Seed",
+      "category": "seed",
+      "tier": 1,
+      "laborMinutes": 1.5,
+      "refPrice": 3,
+      "npcBuyPrice": 4,
+      "npcSellPrice": 2,
+      "winterMaxMult": 1.3,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "lake_trout",
+      "name": "Lake Trout",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 3.5,
+      "refPrice": 7,
+      "npcBuyPrice": 9,
+      "npcSellPrice": 5,
+      "winterMaxMult": 1.65,
+      "localSubsidyBound": true,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "frost_carp",
+      "name": "Frost Carp",
+      "category": "raw",
+      "tier": 2,
+      "laborMinutes": 5.5,
+      "refPrice": 18.89,
+      "npcBuyPrice": 23,
+      "npcSellPrice": 13,
+      "winterMaxMult": 1.85,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "pine_log",
+      "name": "Pine Log",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 3,
+      "refPrice": 6,
+      "npcBuyPrice": 8,
+      "npcSellPrice": 4,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "oak_log",
+      "name": "Hardwood Oak Log",
+      "category": "raw",
+      "tier": 2,
+      "laborMinutes": 4.5,
+      "refPrice": 15.45,
+      "npcBuyPrice": 19,
+      "npcSellPrice": 11,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "maize_cob",
+      "name": "Maize Cob",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 3.5,
+      "refPrice": 7,
+      "npcBuyPrice": 9,
+      "npcSellPrice": 5,
+      "winterMaxMult": 2,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "wheat_sheaf",
+      "name": "Wheat Sheaf",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 3.5,
+      "refPrice": 7,
+      "npcBuyPrice": 9,
+      "npcSellPrice": 5,
+      "winterMaxMult": 2,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "snow_turnip",
+      "name": "Snow Turnip",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 3.2,
+      "refPrice": 6.4,
+      "npcBuyPrice": 8,
+      "npcSellPrice": 4,
+      "winterMaxMult": 1.6,
+      "localSubsidyBound": true,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "frost_potato",
+      "name": "Frost Potato",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 3.8,
+      "refPrice": 7.6,
+      "npcBuyPrice": 10,
+      "npcSellPrice": 5,
+      "winterMaxMult": 1.8,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "mountain_berries",
+      "name": "Mountain Berries",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 4,
+      "refPrice": 8,
+      "npcBuyPrice": 10,
+      "npcSellPrice": 5,
+      "winterMaxMult": 1.9,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "forest_mushroom",
+      "name": "Forest Mushrooms",
+      "category": "raw",
+      "tier": 1,
+      "laborMinutes": 3.2,
+      "refPrice": 6.4,
+      "npcBuyPrice": 8,
+      "npcSellPrice": 4,
+      "winterMaxMult": 1.55,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "frost_mint",
+      "name": "Frost Mint",
+      "category": "raw",
+      "tier": 2,
+      "laborMinutes": 4,
+      "refPrice": 13.74,
+      "npcBuyPrice": 17,
+      "npcSellPrice": 9,
+      "winterMaxMult": 1.8,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "yak_milk",
+      "name": "Yak Milk",
+      "category": "raw",
+      "tier": 2,
+      "laborMinutes": 3.5,
+      "refPrice": 12.02,
+      "npcBuyPrice": 15,
+      "npcSellPrice": 8,
+      "winterMaxMult": 1.85,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "yak_wool",
+      "name": "Yak Wool",
+      "category": "raw",
+      "tier": 2,
+      "laborMinutes": 4,
+      "refPrice": 13.74,
+      "npcBuyPrice": 17,
+      "npcSellPrice": 9,
+      "winterMaxMult": 1.9,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "raw_stone",
+      "name": "Raw Stone",
+      "category": "ore",
+      "tier": 1,
+      "laborMinutes": 1.8,
+      "refPrice": 3.6,
+      "npcBuyPrice": 5,
+      "npcSellPrice": 2,
+      "winterMaxMult": 1.4,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "coal_chunk",
+      "name": "Coal Chunk",
+      "category": "ore",
+      "tier": 1,
+      "laborMinutes": 2.6,
+      "refPrice": 5.2,
+      "npcBuyPrice": 7,
+      "npcSellPrice": 3,
+      "winterMaxMult": 1.85,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "copper_ore",
+      "name": "Copper Ore",
+      "category": "ore",
+      "tier": 1,
+      "laborMinutes": 3.8,
+      "refPrice": 7.6,
+      "npcBuyPrice": 10,
+      "npcSellPrice": 5,
+      "winterMaxMult": 1.6,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "iron_ore",
+      "name": "Iron Ore",
+      "category": "ore",
+      "tier": 2,
+      "laborMinutes": 3.1,
+      "refPrice": 10.65,
+      "npcBuyPrice": 13,
+      "npcSellPrice": 7,
+      "winterMaxMult": 1.7,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "silver_ore",
+      "name": "Silver Ore",
+      "category": "ore",
+      "tier": 3,
+      "laborMinutes": 3.1,
+      "refPrice": 14.61,
+      "npcBuyPrice": 18,
+      "npcSellPrice": 10,
+      "winterMaxMult": 1.7,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "gold_ore",
+      "name": "Gold Ore",
+      "category": "ore",
+      "tier": 3,
+      "laborMinutes": 4.5,
+      "refPrice": 21.2,
+      "npcBuyPrice": 26,
+      "npcSellPrice": 15,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "raw_diamond",
+      "name": "Uncut Diamond",
+      "category": "ore",
+      "tier": 4,
+      "laborMinutes": 5.2,
+      "refPrice": 30.66,
+      "npcBuyPrice": 37,
+      "npcSellPrice": 22,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "ice_crystal",
+      "name": "Glacier Ice Crystal",
+      "category": "ore",
+      "tier": 4,
+      "laborMinutes": 6.2,
+      "refPrice": 36.56,
+      "npcBuyPrice": 44,
+      "npcSellPrice": 26,
+      "winterMaxMult": 2,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "ancient_relic",
+      "name": "Ancient Yeti Relic",
+      "category": "luxury",
+      "tier": 4,
+      "laborMinutes": 9.5,
+      "refPrice": 56.02,
+      "npcBuyPrice": 68,
+      "npcSellPrice": 40,
+      "winterMaxMult": 1.5,
+      "localSubsidyBound": false,
+      "recipe": [],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "firewood",
+      "name": "Split Firewood",
+      "category": "intermediate",
+      "tier": 1,
+      "laborMinutes": 1.5,
+      "refPrice": 9,
+      "npcBuyPrice": 11,
+      "npcSellPrice": 6,
+      "winterMaxMult": 2,
+      "localSubsidyBound": true,
+      "recipe": [
+        {
+          "itemId": "pine_log",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "pine_planks",
+      "name": "Pine Planks",
+      "category": "intermediate",
+      "tier": 1,
+      "laborMinutes": 2.2,
+      "refPrice": 16.4,
+      "npcBuyPrice": 20,
+      "npcSellPrice": 11,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "pine_log",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "flour_sack",
+      "name": "Fine Flour",
+      "category": "intermediate",
+      "tier": 2,
+      "laborMinutes": 2,
+      "refPrice": 21.37,
+      "npcBuyPrice": 26,
+      "npcSellPrice": 15,
+      "winterMaxMult": 2,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "wheat_sheaf",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 0.5
+    },
+    {
+      "id": "iron_ingot",
+      "name": "Iron Ingot",
+      "category": "intermediate",
+      "tier": 2,
+      "laborMinutes": 2.5,
+      "refPrice": 36.09,
+      "npcBuyPrice": 44,
+      "npcSellPrice": 25,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "iron_ore",
+          "qty": 2
+        },
+        {
+          "itemId": "coal_chunk",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 1
+    },
+    {
+      "id": "gold_ingot",
+      "name": "Gold Ingot",
+      "category": "intermediate",
+      "tier": 4,
+      "laborMinutes": 3.2,
+      "refPrice": 73.67,
+      "npcBuyPrice": 89,
+      "npcSellPrice": 53,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "gold_ore",
+          "qty": 2
+        },
+        {
+          "itemId": "coal_chunk",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 2
+    },
+    {
+      "id": "steel_ingot",
+      "name": "Tempered Steel Ingot",
+      "category": "intermediate",
+      "tier": 3,
+      "laborMinutes": 3,
+      "refPrice": 98.72,
+      "npcBuyPrice": 119,
+      "npcSellPrice": 71,
+      "winterMaxMult": 1.85,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "iron_ingot",
+          "qty": 2
+        },
+        {
+          "itemId": "coal_chunk",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 2
+    },
+    {
+      "id": "iron_nails",
+      "name": "Box of Iron Nails",
+      "category": "intermediate",
+      "tier": 2,
+      "laborMinutes": 1.5,
+      "refPrice": 41.74,
+      "npcBuyPrice": 51,
+      "npcSellPrice": 30,
+      "winterMaxMult": 1.7,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "iron_ingot",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 0.5
+    },
+    {
+      "id": "wool_cloth",
+      "name": "Heavy Wool Cloth",
+      "category": "intermediate",
+      "tier": 2,
+      "laborMinutes": 2.5,
+      "refPrice": 36.07,
+      "npcBuyPrice": 44,
+      "npcSellPrice": 25,
+      "winterMaxMult": 1.95,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "yak_wool",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "fish_stew",
+      "name": "Hot Fish Stew",
+      "category": "food",
+      "tier": 1,
+      "laborMinutes": 2,
+      "refPrice": 20,
+      "npcBuyPrice": 24,
+      "npcSellPrice": 14,
+      "winterMaxMult": 1.8,
+      "localSubsidyBound": true,
+      "recipe": [
+        {
+          "itemId": "lake_trout",
+          "qty": 1
+        },
+        {
+          "itemId": "firewood",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "smoked_fish",
+      "name": "Smoked Glacier Fish",
+      "category": "food",
+      "tier": 2,
+      "laborMinutes": 2,
+      "refPrice": 29.87,
+      "npcBuyPrice": 36,
+      "npcSellPrice": 21,
+      "winterMaxMult": 2,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "lake_trout",
+          "qty": 2
+        },
+        {
+          "itemId": "firewood",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "artisan_bread",
+      "name": "Artisan Loaf Bread",
+      "category": "food",
+      "tier": 2,
+      "laborMinutes": 2.2,
+      "refPrice": 37.93,
+      "npcBuyPrice": 46,
+      "npcSellPrice": 26,
+      "winterMaxMult": 2,
+      "localSubsidyBound": true,
+      "recipe": [
+        {
+          "itemId": "flour_sack",
+          "qty": 1
+        },
+        {
+          "itemId": "firewood",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "alpine_cheese",
+      "name": "Aged Alpine Cheese",
+      "category": "food",
+      "tier": 2,
+      "laborMinutes": 2.5,
+      "refPrice": 32.63,
+      "npcBuyPrice": 40,
+      "npcSellPrice": 23,
+      "winterMaxMult": 1.9,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "yak_milk",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "warmth_tea",
+      "name": "Winter Warmth Tea",
+      "category": "food",
+      "tier": 2,
+      "laborMinutes": 2,
+      "refPrice": 29.61,
+      "npcBuyPrice": 36,
+      "npcSellPrice": 21,
+      "winterMaxMult": 2,
+      "localSubsidyBound": true,
+      "recipe": [
+        {
+          "itemId": "frost_mint",
+          "qty": 1
+        },
+        {
+          "itemId": "firewood",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "healing_salve",
+      "name": "Healing Salve",
+      "category": "food",
+      "tier": 3,
+      "laborMinutes": 2.5,
+      "refPrice": 38.32,
+      "npcBuyPrice": 46,
+      "npcSellPrice": 27,
+      "winterMaxMult": 1.85,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "frost_mint",
+          "qty": 1
+        },
+        {
+          "itemId": "forest_mushroom",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "repair_kit",
+      "name": "Tool Repair Kit",
+      "category": "gear",
+      "tier": 2,
+      "laborMinutes": 1.8,
+      "refPrice": 58.67,
+      "npcBuyPrice": 71,
+      "npcSellPrice": 42,
+      "winterMaxMult": 1.65,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "iron_ingot",
+          "qty": 1
+        },
+        {
+          "itemId": "pine_planks",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "iron_axe",
+      "name": "Iron Battle Axe",
+      "category": "gear",
+      "tier": 3,
+      "laborMinutes": 3,
+      "refPrice": 104.22,
+      "npcBuyPrice": 126,
+      "npcSellPrice": 75,
+      "winterMaxMult": 1.75,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "iron_ingot",
+          "qty": 2
+        },
+        {
+          "itemId": "pine_planks",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 1.5
+    },
+    {
+      "id": "kite_shield",
+      "name": "Alpine Kite Shield",
+      "category": "gear",
+      "tier": 3,
+      "laborMinutes": 3.2,
+      "refPrice": 124.83,
+      "npcBuyPrice": 150,
+      "npcSellPrice": 89,
+      "winterMaxMult": 1.8,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "iron_ingot",
+          "qty": 2
+        },
+        {
+          "itemId": "wool_cloth",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 1.5
+    },
+    {
+      "id": "winter_coat",
+      "name": "Heavy Winter Coat",
+      "category": "gear",
+      "tier": 3,
+      "laborMinutes": 3.5,
+      "refPrice": 88.63,
+      "npcBuyPrice": 107,
+      "npcSellPrice": 63,
+      "winterMaxMult": 2,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "wool_cloth",
+          "qty": 2
+        }
+      ],
+      "craftFuelCost": 0
+    },
+    {
+      "id": "yeti_crown",
+      "name": "Sovereign Yeti Crown",
+      "category": "luxury",
+      "tier": 4,
+      "laborMinutes": 8,
+      "refPrice": 371.07,
+      "npcBuyPrice": 446,
+      "npcSellPrice": 267,
+      "winterMaxMult": 1.6,
+      "localSubsidyBound": false,
+      "recipe": [
+        {
+          "itemId": "gold_ingot",
+          "qty": 3
+        },
+        {
+          "itemId": "raw_diamond",
+          "qty": 2
+        },
+        {
+          "itemId": "ice_crystal",
+          "qty": 1
+        }
+      ],
+      "craftFuelCost": 5
+    }
+  ],
+  "miningDepths": [
+    {
+      "depth": 1,
+      "name": "Surface Quarry (L1)",
+      "tier": 1,
+      "attemptsPerHour": 28,
+      "upkeepFcPerHour": 24,
+      "drops": [
+        {
+          "itemId": "raw_stone",
+          "probability": 0.5
+        },
+        {
+          "itemId": "coal_chunk",
+          "probability": 0.28
+        },
+        {
+          "itemId": "copper_ore",
+          "probability": 0.19
+        },
+        {
+          "itemId": "iron_ore",
+          "probability": 0.03
+        }
+      ],
+      "grossEvFcPerHour": 140.55,
+      "netPreTaxFcPerHour": 116.55,
+      "netPostTaxFcPerHour": 104.74
+    },
+    {
+      "depth": 2,
+      "name": "Echo Caves Mid (L2)",
+      "tier": 2,
+      "attemptsPerHour": 28,
+      "upkeepFcPerHour": 42,
+      "drops": [
+        {
+          "itemId": "raw_stone",
+          "probability": 0.18
+        },
+        {
+          "itemId": "coal_chunk",
+          "probability": 0.26
+        },
+        {
+          "itemId": "copper_ore",
+          "probability": 0.22
+        },
+        {
+          "itemId": "iron_ore",
+          "probability": 0.29
+        },
+        {
+          "itemId": "silver_ore",
+          "probability": 0.05
+        }
+      ],
+      "grossEvFcPerHour": 209.75,
+      "netPreTaxFcPerHour": 167.75,
+      "netPostTaxFcPerHour": 150.13
+    },
+    {
+      "depth": 3,
+      "name": "Deep Veins (L3)",
+      "tier": 3,
+      "attemptsPerHour": 26,
+      "upkeepFcPerHour": 66,
+      "drops": [
+        {
+          "itemId": "coal_chunk",
+          "probability": 0.18
+        },
+        {
+          "itemId": "iron_ore",
+          "probability": 0.34
+        },
+        {
+          "itemId": "silver_ore",
+          "probability": 0.28
+        },
+        {
+          "itemId": "gold_ore",
+          "probability": 0.16
+        },
+        {
+          "itemId": "raw_diamond",
+          "probability": 0.04
+        }
+      ],
+      "grossEvFcPerHour": 344.92,
+      "netPreTaxFcPerHour": 278.92,
+      "netPostTaxFcPerHour": 249.95
+    },
+    {
+      "depth": 4,
+      "name": "Deep Shaft & Glacier Cavern (L4)",
+      "tier": 4,
+      "attemptsPerHour": 22,
+      "upkeepFcPerHour": 92,
+      "drops": [
+        {
+          "itemId": "iron_ore",
+          "probability": 0.28
+        },
+        {
+          "itemId": "silver_ore",
+          "probability": 0.26
+        },
+        {
+          "itemId": "gold_ore",
+          "probability": 0.24
+        },
+        {
+          "itemId": "raw_diamond",
+          "probability": 0.12
+        },
+        {
+          "itemId": "ice_crystal",
+          "probability": 0.08
+        },
+        {
+          "itemId": "ancient_relic",
+          "probability": 0.02
+        }
+      ],
+      "grossEvFcPerHour": 431.05,
+      "netPreTaxFcPerHour": 339.05,
+      "netPostTaxFcPerHour": 302.84
+    }
+  ],
+  "raidTiers": [
+    {
+      "tier": 1,
+      "name": "Border Skirmish (Town L1-3)",
+      "raidsPerHour": 2.5,
+      "baseWinProb": 0.62,
+      "targetUnvaultedPoolFc": 990,
+      "armyGearCostFc": 14,
+      "rationsCostSummerFc": 7,
+      "lossPenaltyFc": 14,
+      "unvaultedLootPct": 0.15,
+      "warAttritionSinkPct": 0.15,
+      "evHrSummerMayor": 99.47,
+      "evHrSummerPrivateer": 102.46,
+      "evHrWinterMayor": 88.09,
+      "evPerRaidSummerMayor": 39.79
+    },
+    {
+      "tier": 2,
+      "name": "Village Raid (Town L4-6)",
+      "raidsPerHour": 2.5,
+      "baseWinProb": 0.62,
+      "targetUnvaultedPoolFc": 1690,
+      "armyGearCostFc": 24,
+      "rationsCostSummerFc": 12,
+      "lossPenaltyFc": 24,
+      "unvaultedLootPct": 0.15,
+      "warAttritionSinkPct": 0.15,
+      "evHrSummerMayor": 169.39,
+      "evHrSummerPrivateer": 174.43,
+      "evHrWinterMayor": 149.89,
+      "evPerRaidSummerMayor": 67.76
+    },
+    {
+      "tier": 3,
+      "name": "Guild Stronghold Raid (Town L7-9)",
+      "raidsPerHour": 2.2,
+      "baseWinProb": 0.6,
+      "targetUnvaultedPoolFc": 2700,
+      "armyGearCostFc": 38,
+      "rationsCostSummerFc": 18,
+      "lossPenaltyFc": 38,
+      "unvaultedLootPct": 0.15,
+      "warAttritionSinkPct": 0.15,
+      "evHrSummerMayor": 227.79,
+      "evHrSummerPrivateer": 234.15,
+      "evHrWinterMayor": 202.05,
+      "evPerRaidSummerMayor": 103.54
+    },
+    {
+      "tier": 4,
+      "name": "Sovereign Valley Siege (Town L10+)",
+      "raidsPerHour": 2,
+      "baseWinProb": 0.58,
+      "targetUnvaultedPoolFc": 3950,
+      "armyGearCostFc": 56,
+      "rationsCostSummerFc": 25,
+      "lossPenaltyFc": 56,
+      "unvaultedLootPct": 0.15,
+      "warAttritionSinkPct": 0.15,
+      "evHrSummerMayor": 286.32,
+      "evHrSummerPrivateer": 293.38,
+      "evHrWinterMayor": 253.82,
+      "evPerRaidSummerMayor": 143.16
+    }
+  ]
+}

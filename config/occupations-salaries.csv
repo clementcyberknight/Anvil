@@ -1,0 +1,18 @@
+id,name,tier,act_unlocked,gross_fc_hr,upkeep_ratio,net_fc_hr_base
+occ_ice_angler,"Lake & Ice Angler",1,1,120,0.1,97.2
+occ_lumberjack,"Pine Lumberjack",1,1,120,0.11,96.12
+occ_drifter_labor,"Day-Labor Porter",1,1,120,0.08,99.36
+occ_farmer,"Valley Crop Farmer",1,2,120,0.12,95.04
+occ_smokehouse,"Fish Smoker & Stew Chef",2,1,206.06,0.13,161.34
+occ_sawyer,"Sawmill Operator",2,1,206.06,0.12,163.2
+occ_miller,"Windmill Miller",2,2,206.06,0.12,163.2
+occ_baker,"Cozy Baker",2,2,206.06,0.13,161.34
+occ_rancher,"Yak Rancher & Dairy",2,2,206.06,0.12,163.2
+occ_town_guard,"Town Watch Guard",2,2,206.06,0.1,166.91
+occ_blacksmith,"Yeti Blacksmith",3,2,282.71,0.14,218.81
+occ_builder,"Master Builder Crew",3,1,282.71,0.12,223.9
+occ_apothecary,"Apothecary & Tailor",3,3,282.71,0.14,218.81
+occ_banker,"Town Banker & Broker",3,2,282.71,0.1,228.99
+occ_master_smelter,"Deep Blast Smelter",4,3,353.82,0.15,270.68
+occ_jeweler,"Alpine Gem & Crown Jeweler",4,4,353.82,0.15,270.68
+occ_greenhouse,"Sun-Glass Agronomist",4,4,353.82,0.15,270.68
