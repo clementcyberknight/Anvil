@@ -14,6 +14,7 @@ import {
   TownMapCanvas,
 } from '@/components/town/town-map-canvas';
 import { VillagerFocusCard } from '@/components/town/villager-focus-card';
+import { WalletSettingsModal } from '@/components/town/wallet-settings-modal';
 import { WOOD_THEME } from '@/components/town/wood-theme';
 import {
   adjustPouchItem,
@@ -85,6 +86,10 @@ import {
   loadOutboxQueue,
   loadStoredAccountMeta,
 } from '@/lib/anvil-live-sync';
+import {
+  ensureLocalSuiWallet,
+  loadCachedSuiWalletSummarySync,
+} from '@/lib/sui-wallet';
 import {
   canPlaceBuildingOnBlock,
   computeNextValleyTreeWakeupMs,
@@ -241,6 +246,12 @@ export function TownWorldScreen() {
   const [isGeneratingPersona, setIsGeneratingPersona] =
     useState<boolean>(false);
 
+  const [walletSettingsOpen, setWalletSettingsOpen] = useState<boolean>(false);
+
+  const [walletShortAddress, setWalletShortAddress] = useState<string | null>(
+    () => loadCachedSuiWalletSummarySync()?.shortAddress ?? null
+  );
+
   const liveIntentBridgeRef = useRef<
     | ((
         villagerIndex: number,
@@ -274,6 +285,20 @@ export function TownWorldScreen() {
       if (toastTimerRef.current !== null) {
         clearTimeout(toastTimerRef.current);
       }
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void ensureLocalSuiWallet().then((summary) => {
+      if (!cancelled) {
+        setWalletShortAddress(summary.shortAddress);
+      }
+    });
+
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -1227,10 +1252,13 @@ export function TownWorldScreen() {
         heldTool={heldTool}
         citizenCount={TOWN_VILLAGERS.length}
         buildingCount={buildings.length}
+        walletShortAddress={walletShortAddress}
+        liveConnected={liveConnected}
         visible={
           editingBuilding === null &&
           focusedVillager === null &&
           !townHallOpen &&
+          !walletSettingsOpen &&
           activeRaidTown === null
         }
         onSelectHeldTool={setHeldTool}
@@ -1238,7 +1266,28 @@ export function TownWorldScreen() {
         onSellItem={handleSellItem}
         onBuySeed={handleBuySeed}
         onOpenTownHall={handleOpenTownHall}
+        onOpenWalletSettings={() => {
+          triggerLightHaptic();
+          setWalletSettingsOpen(true);
+        }}
       />
+
+      {walletSettingsOpen && (
+        <WalletSettingsModal
+          visible
+          liveConnected={liveConnected}
+          activeTownId={activeTownId}
+          onClose={() => {
+            setWalletSettingsOpen(false);
+          }}
+          onWalletChanged={(newWallet) => {
+            setWalletShortAddress(newWallet.shortAddress);
+            void syncClientRef.current?.reconnectWithWallet(coins);
+            triggerMediumHaptic();
+            showToast(`Switched to Sui Wallet ${newWallet.shortAddress}`);
+          }}
+        />
+      )}
 
       {editingBuilding !== null && (
         <BuildingEditBar

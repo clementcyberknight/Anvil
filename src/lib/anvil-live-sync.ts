@@ -1,6 +1,12 @@
 import type { GameIconKey } from '@/game/icon-atlas';
 import type { StreetNodeId } from '@/game/town-villagers';
 import { sessionStorage } from '@/lib/storage';
+import {
+  ensureLocalSuiWallet,
+  loadCachedSuiWalletSummarySync,
+  markSuiAuthVerified,
+  signPersonalChallengeWithLocalWallet,
+} from '@/lib/sui-wallet';
 
 const SYNC_KEYS = {
   accountId: 'mp.v1.accountId',
@@ -10,6 +16,7 @@ const SYNC_KEYS = {
   visitingTownId: 'mp.v1.visitingTownId',
   outbox: 'mp.v1.outbox',
   seqPrefix: 'mp.v1.seq.',
+  lastDiag: 'mp.v1.lastDiag',
 } as const;
 
 const STREET_NODE_RING: readonly StreetNodeId[] = [
@@ -166,6 +173,7 @@ interface WireEnvelope {
   readonly town?: WireTownHeader;
   readonly deltas?: readonly WireEnvelope[];
   readonly persona?: LivePersonaSummary;
+  readonly message?: string;
 }
 
 interface SessionResponsePayload {
@@ -177,6 +185,13 @@ interface SessionResponsePayload {
     readonly liquidCoinsFc: number;
   };
   readonly sessionToken: string;
+}
+
+interface SuiChallengeResponsePayload {
+  readonly suiAddress: string;
+  readonly nonce: string;
+  readonly messageToSign: string;
+  readonly expiresAtMs: number;
 }
 
 interface DirectoryResponsePayload {
@@ -204,9 +219,12 @@ interface PersonaGenerateResponsePayload {
   readonly usedLiveModel?: boolean;
 }
 
+const DEFAULT_RAILWAY_BACKEND_URL =
+  'https://anvil-backend-production-cbdb6275.up.railway.app';
+
 export function resolveBackendHttpBaseUrl(): string {
   const configured =
-    process.env.EXPO_PUBLIC_BACKEND_URL ?? 'http://localhost:3001';
+    process.env.EXPO_PUBLIC_BACKEND_URL ?? DEFAULT_RAILWAY_BACKEND_URL;
 
   if (
     process.env.EXPO_OS === 'android' &&
@@ -215,7 +233,7 @@ export function resolveBackendHttpBaseUrl(): string {
     return configured.replace('://localhost', '://10.0.2.2');
   }
 
-  return configured;
+  return configured.replace(/\/+$/, '');
 }
 
 export function resolveBackendWsBaseUrl(): string {
@@ -394,7 +412,10 @@ export interface FulfillOrderResult {
 }
 
 export function loadStoredAccountMeta(): StoredAccountMeta {
-  let accountId = sessionStorage.getString(SYNC_KEYS.accountId);
+  const cachedSui = loadCachedSuiWalletSummarySync();
+
+  let accountId =
+    cachedSui?.suiAddress ?? sessionStorage.getString(SYNC_KEYS.accountId);
 
   if (accountId === undefined || accountId.length === 0) {
     const suffix = Math.floor(1000 + Math.random() * 9000);
@@ -403,9 +424,12 @@ export function loadStoredAccountMeta(): StoredAccountMeta {
     sessionStorage.set(SYNC_KEYS.accountId, accountId);
   }
 
+  const shortTag = accountId.startsWith('0x')
+    ? `${accountId.slice(0, 6)}…${accountId.slice(-4)}`
+    : accountId.slice(5, 9);
+
   const displayName =
-    sessionStorage.getString(SYNC_KEYS.displayName) ??
-    `Founder #${accountId.slice(5, 9)}`;
+    sessionStorage.getString(SYNC_KEYS.displayName) ?? `Founder ${shortTag}`;
 
   const homeTownId = sessionStorage.getString(SYNC_KEYS.homeTownId) ?? 'town_1';
 
@@ -425,6 +449,131 @@ export function loadStoredAccountMeta(): StoredAccountMeta {
 
 export function loadLastTownSeq(townId: string): number {
   return sessionStorage.getNumber(`${SYNC_KEYS.seqPrefix}${townId}`) ?? 0;
+}
+
+export function loadLastSyncDiagnostic(): string | null {
+  return sessionStorage.getString(SYNC_KEYS.lastDiag) ?? null;
+}
+
+function recordSyncDiagnostic(diag: string | null): void {
+  if (diag === null || diag.length === 0) {
+    sessionStorage.remove(SYNC_KEYS.lastDiag);
+
+    return;
+  }
+
+  sessionStorage.set(SYNC_KEYS.lastDiag, diag);
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.warn(`[AnvilSync] ${diag}`);
+  }
+}
+
+export async function authenticateSuiSession(
+  initialCoinsFc?: number
+): Promise<boolean> {
+  const wallet = await ensureLocalSuiWallet();
+  const meta = loadStoredAccountMeta();
+  const baseUrl = resolveBackendHttpBaseUrl();
+
+  try {
+    const challengeRes = await fetch(`${baseUrl}/api/auth/challenge`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ suiAddress: wallet.suiAddress }),
+    });
+
+    if (challengeRes.ok) {
+      // SAFETY: `/api/auth/challenge` returns `{ suiAddress, nonce, messageToSign, expiresAtMs }`
+      const challenge =
+        (await challengeRes.json()) as SuiChallengeResponsePayload;
+
+      const signed = await signPersonalChallengeWithLocalWallet(
+        challenge.messageToSign
+      );
+
+      const verifyRes = await fetch(`${baseUrl}/api/auth/verify`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          suiAddress: signed.suiAddress,
+          signature: signed.signature,
+          displayName: meta.displayName,
+          homeTownId: meta.homeTownId,
+          initialCoinsFc,
+        }),
+      });
+
+      if (verifyRes.ok) {
+        // SAFETY: `/api/auth/verify` returns `{ verified, account, sessionToken }`
+        const verifiedData =
+          (await verifyRes.json()) as SessionResponsePayload;
+
+        sessionStorage.set(SYNC_KEYS.sessionToken, verifiedData.sessionToken);
+        sessionStorage.set(
+          SYNC_KEYS.accountId,
+          verifiedData.account.accountId
+        );
+        markSuiAuthVerified(true);
+        recordSyncDiagnostic(null);
+
+        return true;
+      }
+
+      recordSyncDiagnostic(
+        `Sui signature verify rejected (HTTP ${verifyRes.status})`
+      );
+
+      return false;
+    }
+
+    // Zero-downtime rollout path only when remote server has not deployed `/api/auth/challenge` yet
+    if (challengeRes.status === 404) {
+      const legacyId = `yeti_${wallet.suiAddress.slice(2, 14)}`;
+
+      const response = await fetch(`${baseUrl}/api/accounts/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountId: legacyId,
+          displayName: meta.displayName,
+          homeTownId: meta.homeTownId,
+          initialCoinsFc,
+        }),
+      });
+
+      if (!response.ok) {
+        recordSyncDiagnostic(
+          `Legacy session bootstrap failed (HTTP ${response.status})`
+        );
+
+        return false;
+      }
+
+      // SAFETY: `/api/accounts/session` returns `{ account, sessionToken }`
+      const data = (await response.json()) as SessionResponsePayload;
+
+      sessionStorage.set(SYNC_KEYS.sessionToken, data.sessionToken);
+      sessionStorage.set(SYNC_KEYS.accountId, data.account.accountId);
+      recordSyncDiagnostic(
+        'Connected via legacy session (redeploy backend to enable Sui Ed25519 auth)'
+      );
+
+      return true;
+    }
+
+    recordSyncDiagnostic(
+      `Auth challenge failed (HTTP ${challengeRes.status})`
+    );
+
+    return false;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : 'Network unreachable';
+
+    recordSyncDiagnostic(`Backend offline (${reason}) — queueing in MMKV outbox`);
+
+    return false;
+  }
 }
 
 export function saveLastTownSeq(townId: string, seq: number): void {
@@ -584,6 +733,7 @@ export class AnvilMultiplexedSyncClient {
   private ws: WebSocket | null = null;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
+  private isReauthenticating = false;
   private backoffMs = 1200;
   private activeTownId: string;
   private readonly callbacks: LiveSyncCallbacks;
@@ -677,33 +827,13 @@ export class AnvilMultiplexedSyncClient {
     }
   }
 
+  public async reconnectWithWallet(initialCoinsFc: number): Promise<void> {
+    this.stop();
+    await this.start(initialCoinsFc);
+  }
+
   private async bootstrapAccountSession(initialCoinsFc: number): Promise<void> {
-    const meta = loadStoredAccountMeta();
-    const baseUrl = resolveBackendHttpBaseUrl();
-
-    try {
-      const response = await fetch(`${baseUrl}/api/accounts/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountId: meta.accountId,
-          displayName: meta.displayName,
-          homeTownId: meta.homeTownId,
-          initialCoinsFc,
-        }),
-      });
-
-      if (!response.ok) {
-        return;
-      }
-
-      // SAFETY: `/api/accounts/session` returns `{ account, sessionToken }` validated by Zod on `anvil-backend`
-      const data = (await response.json()) as SessionResponsePayload;
-
-      sessionStorage.set(SYNC_KEYS.sessionToken, data.sessionToken);
-    } catch {
-      // Offline-resilient: game continues locally with MMKV outbox until server is reachable
-    }
+    await authenticateSuiSession(initialCoinsFc);
   }
 
   private openSocket(): void {
@@ -915,6 +1045,37 @@ export class AnvilMultiplexedSyncClient {
         break;
       }
 
+      case 'AUTH_REQUIRED': {
+        recordSyncDiagnostic(
+          env.message ?? 'Session token expired — re-authenticating Sui wallet'
+        );
+
+        if (!this.isReauthenticating && !this.stopped) {
+          this.isReauthenticating = true;
+          sessionStorage.remove(SYNC_KEYS.sessionToken);
+
+          void authenticateSuiSession()
+            .then((ok) => {
+              if (ok && !this.stopped) {
+                this.stop();
+                this.stopped = false;
+                this.openSocket();
+              }
+            })
+            .finally(() => {
+              this.isReauthenticating = false;
+            });
+        }
+
+        break;
+      }
+
+      case 'ERROR': {
+        recordSyncDiagnostic(env.message ?? 'WebSocket server frame error');
+
+        break;
+      }
+
       default:
         break;
     }
@@ -1011,17 +1172,27 @@ export async function fetchInterTownOrders(): Promise<InterTownMarketOrder[]> {
   return [...body.orders];
 }
 
+function buildAuthorizedJsonHeaders(sessionToken: string | null): Headers {
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+
+  if (sessionToken !== null && sessionToken.length > 0) {
+    headers.set('Authorization', `Bearer ${sessionToken}`);
+  }
+
+  return headers;
+}
+
 export async function postInterTownOrder(
   itemId: BackendPricingItemId,
   qty: number,
   unitPriceFc: number
 ): Promise<InterTownMarketOrder> {
-  const meta = loadStoredAccountMeta();
+  let meta = loadStoredAccountMeta();
   const baseUrl = resolveBackendHttpBaseUrl();
 
-  const response = await fetch(`${baseUrl}/api/market/orders`, {
+  let response = await fetch(`${baseUrl}/api/market/orders`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: buildAuthorizedJsonHeaders(meta.sessionToken),
     body: JSON.stringify({
       sellerAccountId: meta.accountId,
       itemId,
@@ -1029,6 +1200,20 @@ export async function postInterTownOrder(
       unitPriceFc,
     }),
   });
+
+  if (response.status === 401 && (await authenticateSuiSession())) {
+    meta = loadStoredAccountMeta();
+    response = await fetch(`${baseUrl}/api/market/orders`, {
+      method: 'POST',
+      headers: buildAuthorizedJsonHeaders(meta.sessionToken),
+      body: JSON.stringify({
+        sellerAccountId: meta.accountId,
+        itemId,
+        qty,
+        unitPriceFc,
+      }),
+    });
+  }
 
   // SAFETY: `/api/market/orders` POST returns `{ order?, error? }`
   const body = (await response.json()) as PostOrderResponsePayload;
@@ -1043,17 +1228,29 @@ export async function postInterTownOrder(
 export async function fulfillInterTownOrder(
   orderId: string
 ): Promise<FulfillOrderResult> {
-  const meta = loadStoredAccountMeta();
+  let meta = loadStoredAccountMeta();
   const baseUrl = resolveBackendHttpBaseUrl();
 
-  const response = await fetch(
+  let response = await fetch(
     `${baseUrl}/api/market/orders/${encodeURIComponent(orderId)}/fulfill`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(meta.sessionToken),
       body: JSON.stringify({ buyerAccountId: meta.accountId }),
     }
   );
+
+  if (response.status === 401 && (await authenticateSuiSession())) {
+    meta = loadStoredAccountMeta();
+    response = await fetch(
+      `${baseUrl}/api/market/orders/${encodeURIComponent(orderId)}/fulfill`,
+      {
+        method: 'POST',
+        headers: buildAuthorizedJsonHeaders(meta.sessionToken),
+        body: JSON.stringify({ buyerAccountId: meta.accountId }),
+      }
+    );
+  }
 
   // SAFETY: `/fulfill` returns `{ ok, buyerCoinsAfter, order, error }`
   const body = (await response.json()) as FulfillOrderResponsePayload;
@@ -1073,17 +1270,29 @@ export async function fulfillInterTownOrder(
 }
 
 export async function cancelInterTownOrder(orderId: string): Promise<void> {
-  const meta = loadStoredAccountMeta();
+  let meta = loadStoredAccountMeta();
   const baseUrl = resolveBackendHttpBaseUrl();
 
-  const response = await fetch(
+  let response = await fetch(
     `${baseUrl}/api/market/orders/${encodeURIComponent(orderId)}/cancel`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: buildAuthorizedJsonHeaders(meta.sessionToken),
       body: JSON.stringify({ requesterAccountId: meta.accountId }),
     }
   );
+
+  if (response.status === 401 && (await authenticateSuiSession())) {
+    meta = loadStoredAccountMeta();
+    response = await fetch(
+      `${baseUrl}/api/market/orders/${encodeURIComponent(orderId)}/cancel`,
+      {
+        method: 'POST',
+        headers: buildAuthorizedJsonHeaders(meta.sessionToken),
+        body: JSON.stringify({ requesterAccountId: meta.accountId }),
+      }
+    );
+  }
 
   if (!response.ok) {
     throw new Error(`Cancel failed (${response.status})`);
