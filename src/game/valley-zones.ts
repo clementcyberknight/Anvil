@@ -53,6 +53,45 @@ export interface StoredValleyBuilding {
   readonly facing: BuildingFacing;
 }
 
+export interface BuildingFootprint {
+  readonly widthTiles: number;
+  readonly heightTiles: number;
+}
+
+export interface BuildingTileBounds {
+  readonly minTx: number;
+  readonly maxTx: number;
+  readonly minTy: number;
+  readonly maxTy: number;
+}
+
+export interface TilePoint {
+  readonly tileX: number;
+  readonly tileY: number;
+}
+
+/**
+ * Tiered building tile footprints on the 84x84px tile grid:
+ * - 3x3 (9 tiles): Citizen Cottages & cozy shops (leaves walkable side alleys)
+ * - 4x4 (16 tiles): Workshops, mills, piers & civic landmarks
+ */
+export const VALLEY_BUILDING_FOOTPRINTS = {
+  townHall: { widthTiles: 4, heightTiles: 4 },
+  bank: { widthTiles: 4, heightTiles: 4 },
+  blacksmith: { widthTiles: 4, heightTiles: 4 },
+  tradePost: { widthTiles: 4, heightTiles: 4 },
+  yetiLodge: { widthTiles: 4, heightTiles: 4 },
+  cottage: { widthTiles: 3, heightTiles: 3 },
+  bakery: { widthTiles: 3, heightTiles: 3 },
+  windmill: { widthTiles: 4, heightTiles: 4 },
+  sawmill: { widthTiles: 4, heightTiles: 4 },
+  builderShop: { widthTiles: 3, heightTiles: 3 },
+  yakBarn: { widthTiles: 4, heightTiles: 4 },
+  cheeseCellar: { widthTiles: 3, heightTiles: 3 },
+  fishingPier: { widthTiles: 4, heightTiles: 4 },
+  smokehouse: { widthTiles: 3, heightTiles: 3 },
+} as const satisfies Record<TownBuildingSpriteKey, BuildingFootprint>;
+
 export const VALLEY_BUILDING_LABELS = {
   townHall: 'Town Hall',
   bank: 'Town Bank & Treasury',
@@ -574,6 +613,88 @@ export function isBlockOverlappingLake(
   );
 }
 
+export function getBuildingTileBounds(
+  bld: Pick<ValleyBuildingPlacement, 'spriteKey' | 'blockX' | 'blockY'>
+): BuildingTileBounds {
+  const fp = VALLEY_BUILDING_FOOTPRINTS[bld.spriteKey];
+  const padX = Math.floor((BLOCK_GRID_SIZE - fp.widthTiles) / 2);
+  const padY = BLOCK_GRID_SIZE - fp.heightTiles;
+  const minTx = bld.blockX * BLOCK_GRID_SIZE + padX;
+  const minTy = bld.blockY * BLOCK_GRID_SIZE + padY;
+
+  return {
+    minTx,
+    maxTx: minTx + fp.widthTiles - 1,
+    minTy,
+    maxTy: minTy + fp.heightTiles - 1,
+  };
+}
+
+export function getBuildingDoorTile(
+  bld: Pick<ValleyBuildingPlacement, 'spriteKey' | 'blockX' | 'blockY'>
+): TilePoint {
+  const bounds = getBuildingTileBounds(bld);
+
+  return {
+    tileX: Math.floor((bounds.minTx + bounds.maxTx) / 2),
+    tileY: Math.min(VALLEY_TILE_ROWS - 1, bounds.maxTy + 1),
+  };
+}
+
+export function isTileInsideBuilding(
+  tileX: number,
+  tileY: number,
+  buildings: readonly ValleyBuildingPlacement[] = VALLEY_STARTER_BUILDINGS,
+  ignoreBuildingId?: string
+): boolean {
+  for (let i = 0; i < buildings.length; i += 1) {
+    const b = buildings[i];
+
+    if (b.id === ignoreBuildingId) {
+      continue;
+    }
+
+    const bounds = getBuildingTileBounds(b);
+
+    if (
+      tileX >= bounds.minTx &&
+      tileX <= bounds.maxTx &&
+      tileY >= bounds.minTy &&
+      tileY <= bounds.maxTy
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+export function isPlazaWellTile(tileX: number, tileY: number): boolean {
+  // Keep the 2x2 Plaza Stone Well centerpiece open for streets & citizens
+  return tileX >= 111 && tileX <= 112 && tileY >= 201 && tileY <= 202;
+}
+
+export function isTileBlockedForLandEdit(
+  tileX: number,
+  tileY: number,
+  buildings: readonly ValleyBuildingPlacement[] = VALLEY_STARTER_BUILDINGS
+): boolean {
+  if (
+    tileX < 0 ||
+    tileX >= VALLEY_TILE_COLS ||
+    tileY < 0 ||
+    tileY >= VALLEY_TILE_ROWS
+  ) {
+    return true;
+  }
+
+  if (isLakeTile(tileX, tileY) || isPlazaWellTile(tileX, tileY)) {
+    return true;
+  }
+
+  return isTileInsideBuilding(tileX, tileY, buildings);
+}
+
 export function isBlockOccupiedByBuilding(
   blockX: number,
   blockY: number,
@@ -639,5 +760,37 @@ export function canPlaceBuildingOnBlock(
     return false;
   }
 
-  return !isBlockOccupiedByBuilding(blockX, blockY, buildings, movingBuildingId);
+  const moving = buildings.find((b) => b.id === movingBuildingId);
+
+  if (moving === undefined) {
+    return !isBlockOccupiedByBuilding(blockX, blockY, buildings, movingBuildingId);
+  }
+
+  const candidateBounds = getBuildingTileBounds({
+    spriteKey: moving.spriteKey,
+    blockX,
+    blockY,
+  });
+
+  for (let i = 0; i < buildings.length; i += 1) {
+    const other = buildings[i];
+
+    if (other.id === movingBuildingId) {
+      continue;
+    }
+
+    const otherBounds = getBuildingTileBounds(other);
+
+    const overlaps =
+      candidateBounds.minTx <= otherBounds.maxTx &&
+      candidateBounds.maxTx >= otherBounds.minTx &&
+      candidateBounds.minTy <= otherBounds.maxTy &&
+      candidateBounds.maxTy >= otherBounds.minTy;
+
+    if (overlaps) {
+      return false;
+    }
+  }
+
+  return true;
 }

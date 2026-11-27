@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { WOOD_THEME } from '@/components/town/wood-theme';
 import {
   type StoredValleyBuilding,
   VALLEY_BUILDING_LABELS,
@@ -106,13 +107,18 @@ const styles = StyleSheet.create({
   bar: {
     width: '100%',
     maxWidth: 440,
-    backgroundColor: 'rgba(10, 14, 24, 0.94)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(64, 167, 252, 0.45)',
+    backgroundColor: WOOD_THEME.sheetBg,
+    borderRadius: 22,
+    borderWidth: 3,
+    borderColor: WOOD_THEME.sheetBorder,
     paddingHorizontal: 15,
     paddingVertical: 13,
     gap: 11,
+    shadowColor: '#2E1A0B',
+    shadowOpacity: 0.28,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
   },
   infoRow: {
     flexDirection: 'row',
@@ -125,28 +131,31 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   titleText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    color: WOOD_THEME.inkHeading,
+    fontSize: 16.5,
+    fontWeight: '800',
   },
   statusText: {
-    color: '#C0CEF5',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   invalidText: {
-    color: '#FCA5A5',
+    color: WOOD_THEME.ctaDangerText,
+    fontWeight: '700',
   },
   coordChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: WOOD_THEME.badgeGoldBg,
     borderRadius: 999,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.badgeGoldBorder,
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
   coordText: {
-    color: '#E2E8F0',
+    color: WOOD_THEME.badgeGoldText,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   actionsRow: {
     flexDirection: 'row',
@@ -160,33 +169,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   cancelBtn: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: WOOD_THEME.ctaWoodSoftBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.cardBorder,
   },
   cancelBtnText: {
-    color: '#E2E8F0',
+    color: WOOD_THEME.inkHeading,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   rotateBtn: {
-    backgroundColor: '#C0CEF5',
+    backgroundColor: WOOD_THEME.ctaWoodBg,
   },
   rotateBtnText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkOnDark,
     fontSize: 13.5,
     fontWeight: '800',
   },
   confirmBtn: {
-    backgroundColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.ctaGoldBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.ctaGoldBorder,
   },
   confirmBtnDisabled: {
-    backgroundColor: 'rgba(148, 163, 184, 0.25)',
+    backgroundColor: WOOD_THEME.tabInactiveBg,
+    borderColor: WOOD_THEME.cardBorder,
   },
   confirmBtnText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 13.5,
     fontWeight: '800',
   },
   confirmBtnTextDisabled: {
-    color: '#94A3B8',
+    color: WOOD_THEME.inkMuted,
   },
 });

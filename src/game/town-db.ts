@@ -41,11 +41,14 @@ import {
   createStarterValleyTrees,
   type DynamicPatchKind,
   isBlockBlockedForSoil,
+  isTileBlockedForLandEdit,
   type StoredValleyBuilding,
   type TownBuildingSpriteKey,
   VALLEY_BLOCK_COLS,
   VALLEY_BLOCK_ROWS,
   VALLEY_STARTER_BUILDINGS,
+  VALLEY_TILE_COLS,
+  VALLEY_TILE_ROWS,
   type ValleyPlantedTree,
 } from '@/game/valley-zones';
 import { sessionStorage } from '@/lib/storage';
@@ -165,6 +168,31 @@ interface ValleyCropRow {
   readonly mature_at_ms: number;
 }
 
+export type ValleyTileKind = 'FARM_SOIL' | 'PATH';
+
+export interface StoredValleyTile {
+  readonly tileX: number;
+  readonly tileY: number;
+  readonly kind: ValleyTileKind;
+  readonly createdAtMs: number;
+  readonly refreezeAtMs: number | null;
+}
+
+interface ValleyTileRow {
+  readonly tile_key: string;
+  readonly tile_x: number;
+  readonly tile_y: number;
+  readonly kind: string;
+  readonly created_at_ms: number;
+  readonly refreeze_at_ms: number | null;
+}
+
+/**
+ * In Dead Winter, Hoe-tilled Farm Soil freezes back into snow after 90 seconds
+ * (removing any unharvested crop on it). Shovel-laid Paths never refreeze.
+ */
+export const WINTER_SOIL_REFREEZE_MS = 90_000;
+
 export interface StoredLandPatch {
   readonly blockX: number;
   readonly blockY: number;
@@ -273,6 +301,18 @@ function getTownDb(): SQLite.SQLiteDatabase {
 
     CREATE INDEX IF NOT EXISTS idx_town_valley_crops_coords
       ON town_valley_crops (tile_x, tile_y);
+
+    CREATE TABLE IF NOT EXISTS town_valley_tiles (
+      tile_key TEXT PRIMARY KEY NOT NULL,
+      tile_x INTEGER NOT NULL,
+      tile_y INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      refreeze_at_ms INTEGER
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_town_valley_tiles_coords
+      ON town_valley_tiles (tile_x, tile_y);
   `);
 
   dbInstance = db;
@@ -702,6 +742,76 @@ export function deleteLandPatch(blockX: number, blockY: number): void {
   const key = `${blockX}_${blockY}`;
 
   db.runSync('DELETE FROM town_land_blocks WHERE block_key = ?', key);
+}
+
+export function loadValleyTiles(
+  buildings: readonly StoredValleyBuilding[]
+): StoredValleyTile[] {
+  const db = getTownDb();
+  const rows = db.getAllSync<ValleyTileRow>('SELECT * FROM town_valley_tiles');
+  const tiles: StoredValleyTile[] = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const r = rows[i];
+
+    const outOfBounds =
+      r.tile_x < 0 ||
+      r.tile_x >= VALLEY_TILE_COLS ||
+      r.tile_y < 0 ||
+      r.tile_y >= VALLEY_TILE_ROWS;
+
+    if (outOfBounds || isTileBlockedForLandEdit(r.tile_x, r.tile_y, buildings)) {
+      db.runSync(
+        'DELETE FROM town_valley_tiles WHERE tile_key = ?',
+        r.tile_key
+      );
+      continue;
+    }
+
+    tiles.push({
+      tileX: r.tile_x,
+      tileY: r.tile_y,
+      kind: r.kind === 'PATH' ? 'PATH' : 'FARM_SOIL',
+      createdAtMs: r.created_at_ms,
+      refreezeAtMs: r.refreeze_at_ms,
+    });
+  }
+
+  return tiles;
+}
+
+export function upsertValleyTile(tile: StoredValleyTile): void {
+  const db = getTownDb();
+  const key = `${tile.tileX}_${tile.tileY}`;
+
+  db.runSync(
+    `INSERT OR REPLACE INTO town_valley_tiles
+       (tile_key, tile_x, tile_y, kind, created_at_ms, refreeze_at_ms)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    key,
+    tile.tileX,
+    tile.tileY,
+    tile.kind,
+    tile.createdAtMs,
+    tile.refreezeAtMs
+  );
+}
+
+export function deleteValleyTile(tileX: number, tileY: number): void {
+  const db = getTownDb();
+  const key = `${tileX}_${tileY}`;
+
+  db.runSync('DELETE FROM town_valley_tiles WHERE tile_key = ?', key);
+}
+
+export function deleteValleyCropAtTile(tileX: number, tileY: number): void {
+  const db = getTownDb();
+
+  db.runSync(
+    'DELETE FROM town_valley_crops WHERE tile_x = ? AND tile_y = ?',
+    tileX,
+    tileY
+  );
 }
 
 const VALLEY_TREES_SEEDED_KEY = 'town.valleyTrees.seeded.v1';

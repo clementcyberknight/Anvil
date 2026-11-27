@@ -1,0 +1,43 @@
+/**
+ * Unified Cozy Wooden Parchment UI Theme for Anvil.
+ * Keeps every modal, floating card, edit bar, HUD dock, toast, and raid bar
+ * consistent with the carved-oak & cream-parchment Founder Pouch aesthetic.
+ */
+export const WOOD_THEME = {
+  backdrop: 'rgba(28, 16, 8, 0.58)',
+  sheetBg: '#F5ECD8',
+  sheetDeepBg: '#EBDCC0',
+  sheetBorder: '#8B5A2B',
+  sheetInnerBorder: '#C5923E',
+  cardBg: '#FFF9EC',
+  cardBorder: '#DEC9A4',
+  cardHighlightBg: '#FEF7E0',
+  cardMutedBg: '#F3E8D0',
+  tabInactiveBg: '#E7D8BA',
+  tabActiveBg: '#FFF8E7',
+  tabActiveBorder: '#C5923E',
+  inkPrimary: '#2E1A0B',
+  inkHeading: '#4A2C14',
+  inkSecondary: '#7C5836',
+  inkMuted: '#8C6746',
+  inkOnDark: '#FFF9EC',
+  closeBg: '#8B4513',
+  ctaGoldBg: '#F59E0B',
+  ctaGoldBorder: '#B45309',
+  ctaWoodBg: '#7C4A21',
+  ctaWoodSoftBg: '#E7D8BA',
+  ctaGreenBg: '#2F7D32',
+  ctaDangerBg: '#B91C1C',
+  ctaDangerSoftBg: '#FEE2E2',
+  ctaDangerText: '#991B1B',
+  badgeGoldBg: '#FEF3C7',
+  badgeGoldBorder: '#EAB308',
+  badgeGoldText: '#78350F',
+  dockBg: 'rgba(24, 16, 12, 0.88)',
+  dockBorder: '#C67432',
+  toastBg: '#F5ECD8',
+  toastBorder: '#8B5A2B',
+  progressTrack: '#E3D3B3',
+  progressGood: '#2F7D32',
+  progressWarn: '#D97706',
+} as const;

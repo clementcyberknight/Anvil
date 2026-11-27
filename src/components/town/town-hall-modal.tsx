@@ -15,6 +15,7 @@ import {
   View,
 } from 'react-native';
 
+import { WOOD_THEME } from '@/components/town/wood-theme';
 import { getPouchQty, type PouchEntry } from '@/game/economy-engine';
 import {
   type GameIconKey,
@@ -43,6 +44,17 @@ import {
   VILLAGER_ATLAS_WIDTH,
   VILLAGER_CELL_SIZE,
 } from '@/game/villager-atlas';
+import {
+  backendItemToClientIcon,
+  cancelInterTownOrder,
+  type DirectoryTownSummary,
+  fetchInterTownOrders,
+  fetchTownsDirectory,
+  fulfillInterTownOrder,
+  type InterTownMarketOrder,
+  loadStoredAccountMeta,
+  postInterTownOrder,
+} from '@/lib/anvil-live-sync';
 
 interface TownHallModalProps {
   readonly visible: boolean;
@@ -52,6 +64,10 @@ interface TownHallModalProps {
   readonly governance: TownGovernanceState;
   readonly lastElection: ElectionBallotResult | null;
   readonly initialTab?: TownHallTab;
+  readonly liveConnected?: boolean;
+  readonly activeTownId?: string;
+  readonly lastSeq?: number;
+  readonly outboxCount?: number;
   readonly onClose: () => void;
   readonly onChangeTaxRate: (delta: number) => void;
   readonly onChangeWinterPolicy: (policy: WinterPolicy) => void;
@@ -59,9 +75,17 @@ interface TownHallModalProps {
   readonly onDonateRelief: () => void;
   readonly onTrainUnit: (unitKey: ArmyUnitKey) => void;
   readonly onLaunchRaid: (town: RivalTownBlueprint) => void;
+  readonly onSwitchVisitedTown?: (townId: string) => void;
+  readonly onEscrowListed?: (itemId: GameIconKey, qty: number) => void;
+  readonly onEscrowCancelledRefund?: (itemId: GameIconKey, qty: number) => void;
+  readonly onEscrowPurchased?: (
+    itemId: GameIconKey,
+    qty: number,
+    totalCostFc: number
+  ) => void;
 }
 
-export type TownHallTab = 'POLICY' | 'ELECTION' | 'WAR_ROOM';
+export type TownHallTab = 'POLICY' | 'ELECTION' | 'WAR_ROOM' | 'INTER_TOWN';
 
 const WINTER_POLICIES: readonly {
   readonly key: WinterPolicy;
@@ -143,6 +167,10 @@ export function TownHallModal({
   governance,
   lastElection,
   initialTab = 'POLICY',
+  liveConnected = false,
+  activeTownId = 'town_1',
+  lastSeq = 0,
+  outboxCount = 0,
   onClose,
   onChangeTaxRate,
   onChangeWinterPolicy,
@@ -150,8 +178,44 @@ export function TownHallModal({
   onDonateRelief,
   onTrainUnit,
   onLaunchRaid,
+  onSwitchVisitedTown,
+  onEscrowListed,
+  onEscrowCancelledRefund,
+  onEscrowPurchased,
 }: TownHallModalProps) {
   const [activeTab, setActiveTab] = useState<TownHallTab>(initialTab);
+
+  const [directoryTowns, setDirectoryTowns] = useState<DirectoryTownSummary[]>(
+    []
+  );
+
+  const [marketOrders, setMarketOrders] = useState<InterTownMarketOrder[]>([]);
+  const [isSyncLoading, setIsSyncLoading] = useState<boolean>(false);
+  const [syncError, setSyncError] = useState<string | null>(null);
+  const [isMutatingOrder, setIsMutatingOrder] = useState<boolean>(false);
+
+  const accountMeta = loadStoredAccountMeta();
+
+  const refreshInterTownHub = async (): Promise<void> => {
+    setIsSyncLoading(true);
+    setSyncError(null);
+
+    try {
+      const [townsRes, ordersRes] = await Promise.all([
+        fetchTownsDirectory(),
+        fetchInterTownOrders(),
+      ]);
+
+      setDirectoryTowns(townsRes);
+      setMarketOrders(ordersRes);
+    } catch {
+      setSyncError(
+        'Backend unreachable — playing locally with MMKV Outbox protection.'
+      );
+    } finally {
+      setIsSyncLoading(false);
+    }
+  };
 
   const iconsAtlas = useImage(
     require('@/assets/resource-asset/compiled/icons-atlas.webp')
@@ -203,15 +267,20 @@ export function TownHallModal({
           <View style={styles.tabRow}>
             {(
               [
-                { key: 'POLICY', label: 'Mayor Policy', icon: 'mayorCrown' },
-                { key: 'ELECTION', label: 'Election', icon: 'ballotBox' },
-                { key: 'WAR_ROOM', label: 'War Room', icon: 'raidAxesShield' },
+                { key: 'POLICY', label: 'Policy', icon: 'mayorCrown' },
+                { key: 'ELECTION', label: 'Vote', icon: 'ballotBox' },
+                { key: 'WAR_ROOM', label: 'War', icon: 'raidAxesShield' },
+                { key: 'INTER_TOWN', label: 'World', icon: 'fishStew' },
               ] as const
             ).map((tab) => (
               <Pressable
                 key={tab.key}
                 onPress={() => {
                   setActiveTab(tab.key);
+
+                  if (tab.key === 'INTER_TOWN') {
+                    void refreshInterTownHub();
+                  }
                 }}
                 style={[
                   styles.tabBtn,
@@ -514,6 +583,258 @@ export function TownHallModal({
                 </View>
               </>
             )}
+
+            {activeTab === 'INTER_TOWN' && (
+              <>
+                <View style={styles.sectionCard}>
+                  <View style={styles.warHeaderRow}>
+                    <Text style={styles.sectionTitle}>
+                      {liveConnected
+                        ? `🟢 LIVE WS · ${activeTownId.toUpperCase()} · SEQ #${lastSeq}`
+                        : `🟠 OFFLINE OUTBOX (${outboxCount} QUEUED)`}
+                    </Text>
+                    <Pressable
+                      disabled={isSyncLoading}
+                      onPress={() => {
+                        void refreshInterTownHub();
+                      }}
+                      style={styles.trainBtn}
+                    >
+                      <Text style={styles.trainBtnText}>
+                        {isSyncLoading ? 'Syncing…' : 'Refresh'}
+                      </Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.sectionHint}>
+                    Account {accountMeta.displayName} · Home{' '}
+                    {accountMeta.homeTownId}. Hop across valleys in 1 frame or
+                    trade escrowed surplus across Winter/Summer towns!
+                  </Text>
+                  {syncError !== null && (
+                    <Text style={styles.syncWarnText}>{syncError}</Text>
+                  )}
+                </View>
+
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionTitle}>
+                    POST POUCH SURPLUS TO INTER-TOWN ESCROW
+                  </Text>
+                  <View style={styles.escrowQuickRow}>
+                    <Pressable
+                      disabled={firewoodQty < 2 || isMutatingOrder}
+                      onPress={() => {
+                        setIsMutatingOrder(true);
+                        void postInterTownOrder('firewood', 2, 10)
+                          .then((created) => {
+                            onEscrowListed?.('firewood', 2);
+                            setMarketOrders((prev) => [created, ...prev]);
+                          })
+                          .catch((err: Error) => {
+                            setSyncError(err.message);
+                          })
+                          .finally(() => {
+                            setIsMutatingOrder(false);
+                          });
+                      }}
+                      style={[
+                        styles.stepBtn,
+                        styles.flexOneBtn,
+                        (firewoodQty < 2 || isMutatingOrder) &&
+                          styles.btnDisabled,
+                      ]}
+                    >
+                      <Text style={styles.stepBtnText}>
+                        List 2× Firewood (20 FC)
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={fishStewQty < 1 || isMutatingOrder}
+                      onPress={() => {
+                        setIsMutatingOrder(true);
+                        void postInterTownOrder('fish_stew', 1, 24)
+                          .then((created) => {
+                            onEscrowListed?.('fishStew', 1);
+                            setMarketOrders((prev) => [created, ...prev]);
+                          })
+                          .catch((err: Error) => {
+                            setSyncError(err.message);
+                          })
+                          .finally(() => {
+                            setIsMutatingOrder(false);
+                          });
+                      }}
+                      style={[
+                        styles.stepBtn,
+                        styles.flexOneBtn,
+                        (fishStewQty < 1 || isMutatingOrder) &&
+                          styles.btnDisabled,
+                      ]}
+                    >
+                      <Text style={styles.stepBtnText}>
+                        List 1× Fish Stew (24 FC)
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionTitle}>
+                    OPEN INTER-TOWN ESCROW ORDERS ({marketOrders.length})
+                  </Text>
+                  {isSyncLoading && marketOrders.length === 0 ? (
+                    <Text style={styles.sectionHint}>
+                      Loading global valley order book…
+                    </Text>
+                  ) : marketOrders.length === 0 ? (
+                    <Text style={styles.sectionHint}>
+                      No open inter-town orders right now. List firewood or hot
+                      stew above so Winter valleys can buy from you!
+                    </Text>
+                  ) : (
+                    marketOrders.map((ord) => {
+                      const isOwn =
+                        ord.sellerAccountId === accountMeta.accountId;
+
+                      const clientIcon = backendItemToClientIcon(ord.itemId);
+
+                      const canBuy =
+                        !isOwn &&
+                        coins >= ord.totalPriceFc &&
+                        !isMutatingOrder;
+
+                      return (
+                        <View key={ord.orderId} style={styles.unitRow}>
+                          <View style={styles.unitIconBox}>
+                            <AtlasIcon
+                              atlas={iconsAtlas}
+                              iconKey={clientIcon}
+                              size={28}
+                            />
+                          </View>
+                          <View style={styles.flexOne}>
+                            <Text style={styles.unitName}>
+                              {ord.itemName} ×{ord.qty} ({ord.totalPriceFc} FC)
+                            </Text>
+                            <Text style={styles.unitSub}>
+                              {ord.sellerDisplayName} · {ord.sellerTownId}
+                            </Text>
+                          </View>
+                          {isOwn ? (
+                            <Pressable
+                              disabled={isMutatingOrder}
+                              onPress={() => {
+                                setIsMutatingOrder(true);
+                                void cancelInterTownOrder(ord.orderId)
+                                  .then(() => {
+                                    onEscrowCancelledRefund?.(
+                                      clientIcon,
+                                      ord.qty
+                                    );
+                                    setMarketOrders((prev) =>
+                                      prev.filter(
+                                        (x) => x.orderId !== ord.orderId
+                                      )
+                                    );
+                                  })
+                                  .catch((err: Error) => {
+                                    setSyncError(err.message);
+                                  })
+                                  .finally(() => {
+                                    setIsMutatingOrder(false);
+                                  });
+                              }}
+                              style={styles.stepBtn}
+                            >
+                              <Text style={styles.trainBtnText}>Cancel</Text>
+                            </Pressable>
+                          ) : (
+                            <Pressable
+                              disabled={!canBuy}
+                              onPress={() => {
+                                setIsMutatingOrder(true);
+                                void fulfillInterTownOrder(ord.orderId)
+                                  .then((res) => {
+                                    onEscrowPurchased?.(
+                                      clientIcon,
+                                      res.order.qty,
+                                      res.order.totalPriceFc
+                                    );
+                                    setMarketOrders((prev) =>
+                                      prev.filter(
+                                        (x) => x.orderId !== ord.orderId
+                                      )
+                                    );
+                                  })
+                                  .catch((err: Error) => {
+                                    setSyncError(err.message);
+                                  })
+                                  .finally(() => {
+                                    setIsMutatingOrder(false);
+                                  });
+                              }}
+                              style={[
+                                styles.trainBtn,
+                                !canBuy && styles.btnDisabled,
+                              ]}
+                            >
+                              <Text style={styles.trainBtnText}>
+                                Buy {ord.totalPriceFc}FC
+                              </Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+
+                <View style={styles.sectionCard}>
+                  <Text style={styles.sectionTitle}>
+                    VISIT MULTIPLAYER VALLEYS (1-FRAME TOWN HOP)
+                  </Text>
+                  {directoryTowns.length === 0 ? (
+                    <Text style={styles.sectionHint}>
+                      Tap Refresh when connected to browse active multiplayer
+                      valleys.
+                    </Text>
+                  ) : (
+                    directoryTowns.slice(0, 6).map((t) => {
+                      const isCurrent = t.id === activeTownId;
+
+                      return (
+                        <View key={t.id} style={styles.rivalCard}>
+                          <View style={styles.flexOne}>
+                            <Text style={styles.unitName}>
+                              {t.season === 'WINTER' ? '❄️' : '☀️'} {t.name}
+                            </Text>
+                            <Text style={styles.unitSub}>
+                              Tax {Math.round(t.taxRatePct * 100)}% · Treasury{' '}
+                              {t.treasuryFc} FC · Visitors {t.visitorCount}
+                            </Text>
+                          </View>
+                          <Pressable
+                            disabled={isCurrent}
+                            onPress={() => {
+                              onSwitchVisitedTown?.(t.id);
+                              onClose();
+                            }}
+                            style={[
+                              styles.trainBtn,
+                              isCurrent && styles.btnDisabled,
+                            ]}
+                          >
+                            <Text style={styles.trainBtnText}>
+                              {isCurrent ? 'Here' : 'Visit'}
+                            </Text>
+                          </Pressable>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+              </>
+            )}
           </ScrollView>
         </View>
       </View>
@@ -524,7 +845,7 @@ export function TownHallModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(6, 10, 18, 0.72)',
+    backgroundColor: WOOD_THEME.backdrop,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 14,
@@ -533,10 +854,10 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 440,
     maxHeight: '88%',
-    backgroundColor: '#0E1525',
-    borderRadius: 22,
-    borderWidth: 2,
-    borderColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.sheetBg,
+    borderRadius: 24,
+    borderWidth: 3,
+    borderColor: WOOD_THEME.sheetBorder,
     padding: 15,
     gap: 12,
   },
@@ -551,20 +872,20 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   headerTitle: {
-    color: '#FFFFFF',
-    fontSize: 17,
+    color: WOOD_THEME.inkHeading,
+    fontSize: 17.5,
     fontWeight: '800',
   },
   headerSub: {
-    color: '#C0CEF5',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 11.5,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   closeBtn: {
     width: 30,
     height: 30,
     borderRadius: 15,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: WOOD_THEME.closeBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -584,18 +905,21 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingVertical: 9,
     borderRadius: 12,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: WOOD_THEME.tabInactiveBg,
   },
   tabBtnActive: {
-    backgroundColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.tabActiveBg,
+    borderWidth: 1.5,
+    borderColor: WOOD_THEME.tabActiveBorder,
   },
   tabLabel: {
-    color: '#C0CEF5',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 11.5,
     fontWeight: '700',
   },
   tabLabelActive: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
+    fontWeight: '800',
   },
   body: {
     gap: 12,
@@ -605,17 +929,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: 'rgba(192, 206, 245, 0.1)',
+    backgroundColor: WOOD_THEME.cardBg,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.cardBorder,
     padding: 12,
   },
   portraitCircle: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: 'rgba(64, 167, 252, 0.25)',
+    backgroundColor: WOOD_THEME.cardMutedBg,
     borderWidth: 2,
-    borderColor: '#40A7FC',
+    borderColor: WOOD_THEME.sheetInnerBorder,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -625,37 +951,37 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   cardTitle: {
-    color: '#FFFFFF',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 15.5,
     fontWeight: '800',
   },
   cardSub: {
-    color: '#C0CEF5',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 12,
     fontWeight: '600',
   },
   metaLine: {
-    color: '#FDE68A',
+    color: WOOD_THEME.badgeGoldText,
     fontSize: 11.5,
-    fontWeight: '700',
+    fontWeight: '800',
     marginTop: 2,
   },
   sectionCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: WOOD_THEME.cardBg,
     borderRadius: 16,
     padding: 12,
     gap: 8,
     borderWidth: 1,
-    borderColor: 'rgba(192, 206, 245, 0.16)',
+    borderColor: WOOD_THEME.cardBorder,
   },
   sectionTitle: {
-    color: '#E2E8F0',
+    color: WOOD_THEME.inkHeading,
     fontSize: 11.5,
     fontWeight: '800',
-    letterSpacing: 0.6,
+    letterSpacing: 0.5,
   },
   sectionHint: {
-    color: '#94A3B8',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 11.5,
     lineHeight: 16,
   },
@@ -670,42 +996,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 9,
     borderRadius: 10,
-    backgroundColor: '#C0CEF5',
+    backgroundColor: WOOD_THEME.ctaWoodSoftBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.cardBorder,
   },
   stepBtnText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontWeight: '800',
     fontSize: 13,
   },
   taxDisplay: {
-    color: '#FFFFFF',
+    color: WOOD_THEME.inkHeading,
     fontSize: 22,
     fontWeight: '900',
   },
   policyRow: {
     padding: 10,
     borderRadius: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
-    borderWidth: 1,
+    backgroundColor: WOOD_THEME.cardMutedBg,
+    borderWidth: 1.5,
     borderColor: 'transparent',
   },
   policyRowActive: {
-    backgroundColor: 'rgba(64, 167, 252, 0.2)',
-    borderColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.cardHighlightBg,
+    borderColor: WOOD_THEME.sheetInnerBorder,
   },
   policyLabel: {
-    color: '#FFFFFF',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   policyHint: {
-    color: '#C0CEF5',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 11,
+    fontWeight: '600',
   },
   progressTrack: {
     height: 10,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: WOOD_THEME.progressTrack,
     overflow: 'hidden',
   },
   progressFill: {
@@ -717,14 +1046,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.ctaGoldBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.ctaGoldBorder,
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 12,
     marginTop: 4,
   },
   primaryBtnText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -732,13 +1063,14 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   resultHeadline: {
-    color: '#FDE68A',
+    color: WOOD_THEME.inkHeading,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   quoteLine: {
-    color: '#CBD5E1',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 11.5,
+    fontWeight: '600',
   },
   warHeaderRow: {
     flexDirection: 'row',
@@ -746,7 +1078,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   warCoins: {
-    color: '#FDE68A',
+    color: WOOD_THEME.badgeGoldText,
     fontSize: 12,
     fontWeight: '800',
   },
@@ -754,36 +1086,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingVertical: 5,
+    paddingVertical: 6,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.07)',
+    borderTopColor: WOOD_THEME.cardBorder,
   },
   unitIconBox: {
     width: 42,
     height: 42,
     borderRadius: 12,
-    backgroundColor: 'rgba(192,206,245,0.14)',
+    backgroundColor: WOOD_THEME.cardMutedBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.cardBorder,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   unitName: {
-    color: '#FFFFFF',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 13,
-    fontWeight: '700',
+    fontWeight: '800',
   },
   unitSub: {
-    color: '#94A3B8',
+    color: WOOD_THEME.inkSecondary,
     fontSize: 10.5,
+    fontWeight: '600',
   },
   trainBtn: {
-    backgroundColor: '#C0CEF5',
+    backgroundColor: WOOD_THEME.ctaGoldBg,
     borderRadius: 9,
     paddingHorizontal: 9,
     paddingVertical: 6,
   },
   trainBtnText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 11,
     fontWeight: '800',
   },
@@ -791,11 +1126,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    backgroundColor: 'rgba(15, 23, 42, 0.85)',
+    backgroundColor: WOOD_THEME.cardMutedBg,
     borderRadius: 14,
     padding: 10,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.35)',
+    borderWidth: 1.5,
+    borderColor: WOOD_THEME.cardBorder,
   },
   rivalNameRow: {
     flexDirection: 'row',
@@ -804,27 +1139,29 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
   },
   bountyTag: {
-    backgroundColor: '#D97706',
+    backgroundColor: WOOD_THEME.badgeGoldBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.badgeGoldBorder,
     borderRadius: 999,
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
   bountyTagText: {
-    color: '#FFFFFF',
+    color: WOOD_THEME.badgeGoldText,
     fontSize: 9.5,
     fontWeight: '800',
   },
   lootLine: {
-    color: '#93C5FD',
+    color: WOOD_THEME.inkHeading,
     fontSize: 11,
-    fontWeight: '600',
+    fontWeight: '700',
     marginTop: 2,
   },
   raidBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#EF4444',
+    backgroundColor: WOOD_THEME.ctaDangerBg,
     borderRadius: 11,
     paddingHorizontal: 12,
     paddingVertical: 9,
@@ -833,5 +1170,18 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12.5,
     fontWeight: '800',
+  },
+  syncWarnText: {
+    color: '#B45309',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  escrowQuickRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  flexOneBtn: {
+    flex: 1,
+    alignItems: 'center',
   },
 });

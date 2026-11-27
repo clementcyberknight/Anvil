@@ -8,7 +8,7 @@ export interface IconAtlasFrame {
 }
 
 export const ICON_ATLAS_WIDTH = 960;
-export const ICON_ATLAS_HEIGHT = 960;
+export const ICON_ATLAS_HEIGHT = 1056;
 export const ICON_CELL_SIZE = 96;
 
 export type GameIconKey =
@@ -103,7 +103,23 @@ export type GameIconKey =
   | 'ballotBox'
   | 'mayorCrown'
   | 'wantedBounty'
-  | 'raidAxesShield';
+  | 'raidAxesShield'
+  | 'ironShovel'
+  | 'builderHammer'
+  | 'clearBroom'
+  | 'yetiHand'
+  | 'forageBasket'
+  | 'milkPail'
+  | 'woolShears'
+  | 'beeSmoker'
+  | 'waterBucket'
+  | 'iceSaw'
+  | 'fishingNet'
+  | 'herbTrowel'
+  | 'forgeTongs'
+  | 'bakingPeel'
+  | 'mortarPestle'
+  | 'toolRepairKit';
 
 export const ICON_ATLAS_FRAMES = {
   lakeTrout: { x: 0, y: 0, width: 96, height: 96 },
@@ -198,4 +214,20 @@ export const ICON_ATLAS_FRAMES = {
   mayorCrown: { x: 864, y: 768, width: 96, height: 96 },
   wantedBounty: { x: 0, y: 864, width: 96, height: 96 },
   raidAxesShield: { x: 96, y: 864, width: 96, height: 96 },
+  ironShovel: { x: 192, y: 864, width: 96, height: 96 },
+  builderHammer: { x: 288, y: 864, width: 96, height: 96 },
+  clearBroom: { x: 384, y: 864, width: 96, height: 96 },
+  yetiHand: { x: 480, y: 864, width: 96, height: 96 },
+  forageBasket: { x: 576, y: 864, width: 96, height: 96 },
+  milkPail: { x: 672, y: 864, width: 96, height: 96 },
+  woolShears: { x: 768, y: 864, width: 96, height: 96 },
+  beeSmoker: { x: 864, y: 864, width: 96, height: 96 },
+  waterBucket: { x: 0, y: 960, width: 96, height: 96 },
+  iceSaw: { x: 96, y: 960, width: 96, height: 96 },
+  fishingNet: { x: 192, y: 960, width: 96, height: 96 },
+  herbTrowel: { x: 288, y: 960, width: 96, height: 96 },
+  forgeTongs: { x: 384, y: 960, width: 96, height: 96 },
+  bakingPeel: { x: 480, y: 960, width: 96, height: 96 },
+  mortarPestle: { x: 576, y: 960, width: 96, height: 96 },
+  toolRepairKit: { x: 672, y: 960, width: 96, height: 96 },
 } as const satisfies Record<GameIconKey, IconAtlasFrame>;

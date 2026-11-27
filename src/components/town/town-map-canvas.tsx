@@ -45,20 +45,27 @@ import {
     TOWN_SUMMER_ATLAS_FRAMES,
     type TownSpriteKey,
 } from "@/game/town-atlas";
-import type { StoredLandPatch } from "@/game/town-db";
+import type { StoredValleyTile } from "@/game/town-db";
 import {
     advanceVillagerRoute,
+    buildValleyNavGrid,
     createInitialVillagerRoutes,
     packVillagerRoutesToFlatBuffer,
+    rerouteBlockedVillagers,
+    type StreetNodeId,
+    TOWN_STREET_NODES,
     TOWN_VILLAGERS,
+    type ValleyNavGrid,
     VILLAGER_BUFFER_STRIDE,
     type VillagerRouteSegment,
 } from "@/game/town-villagers";
 import type { Season } from "@/game/types";
 import {
     BLOCK_GRID_SIZE,
+    getBuildingDoorTile,
+    getBuildingTileBounds,
     getTreeGrowthProgress,
-    isBlockBlockedForSoil,
+    isTileBlockedForLandEdit,
     type StoredValleyBuilding,
     VALLEY_BLOCK_COLS,
     VALLEY_BLOCK_PX,
@@ -162,11 +169,21 @@ interface TownMapCanvasProps {
   readonly buildings: readonly StoredValleyBuilding[];
   readonly editingBuilding: StoredValleyBuilding | null;
   readonly isEditPlacementValid: boolean;
-  readonly placedPatches: readonly StoredLandPatch[];
+  readonly valleyTiles: readonly StoredValleyTile[];
   readonly plantedTrees: readonly ValleyPlantedTree[];
   readonly plantedCrops: readonly ValleyPlantedCrop[];
   readonly nodeCooldowns: readonly NodeCooldownEntry[];
   readonly focusedVillagerIndex: number | null;
+  readonly liveIntentBridgeRef?: {
+    current:
+      | ((
+          villagerIndex: number,
+          targetNodeId: StreetNodeId,
+          isIndoors: boolean,
+          durationMs: number,
+        ) => void)
+      | null;
+  };
   readonly onSelectVillager: (
     villagerIndex: number | null,
     targetNodeId?: string,
@@ -181,12 +198,6 @@ interface TownMapCanvasProps {
     tileY: number,
   ) => void;
   readonly onBlockLongPress: (blockX: number, blockY: number) => void;
-}
-
-function edgeHash(a: number, b: number, c: number): number {
-  const n = Math.sin(a * 127.1 + b * 311.7 + c * 74.7) * 43758.5453;
-
-  return (n - Math.floor(n)) * 2 - 1;
 }
 
 function computeCullWindow(
@@ -267,7 +278,7 @@ function recordVisibleWorldPicture(
   buildings: readonly StoredValleyBuilding[],
   editingBuilding: StoredValleyBuilding | null,
   isEditPlacementValid: boolean,
-  placedPatches: readonly StoredLandPatch[],
+  valleyTiles: readonly StoredValleyTile[],
   plantedTrees: readonly ValleyPlantedTree[],
   plantedCrops: readonly ValleyPlantedCrop[],
   nodeCooldowns: readonly NodeCooldownEntry[],
@@ -475,186 +486,218 @@ function recordVisibleWorldPicture(
     );
   }
 
-  // Pass 4: Viewport-culled organic Loamy Soil patches (ONLY blocks inside cullWindow)
-  if (soilImage !== null && placedPatches.length > 0) {
-    const occupied = new Set<number>();
-    const visiblePatches: StoredLandPatch[] = [];
+  // Pass 4: Viewport-culled 1x1 Shovel Permanent Paths & Hoe Farm Soil Tiles
+  if (valleyTiles.length > 0) {
+    const minTileX = cullWindow.minBx * BLOCK_GRID_SIZE;
+    const maxTileX = (cullWindow.maxBx + 1) * BLOCK_GRID_SIZE - 1;
+    const minTileY = cullWindow.minBy * BLOCK_GRID_SIZE;
+    const maxTileY = (cullWindow.maxBy + 1) * BLOCK_GRID_SIZE - 1;
 
-    let soilMinX = winX + winW;
-    let soilMinY = winY + winH;
-    let soilMaxX = winX;
-    let soilMaxY = winY;
+    const pathKeys = new Set<number>();
+    const soilKeys = new Set<number>();
+    const visiblePaths: StoredValleyTile[] = [];
+    const visibleSoil: StoredValleyTile[] = [];
 
-    for (let i = 0; i < placedPatches.length; i += 1) {
-      const p = placedPatches[i];
+    for (let i = 0; i < valleyTiles.length; i += 1) {
+      const tile = valleyTiles[i];
 
-      if (p.kind !== "PLANTING" || isBlockBlockedForSoil(p.blockX, p.blockY)) {
+      if (isTileBlockedForLandEdit(tile.tileX, tile.tileY, buildings)) {
         continue;
       }
 
-      occupied.add(p.blockY * VALLEY_BLOCK_COLS + p.blockX);
+      const key = tile.tileY * VALLEY_TILE_COLS + tile.tileX;
 
-      if (
-        p.blockX >= cullWindow.minBx &&
-        p.blockX <= cullWindow.maxBx &&
-        p.blockY >= cullWindow.minBy &&
-        p.blockY <= cullWindow.maxBy
-      ) {
-        visiblePatches.push(p);
+      if (tile.kind === "PATH") {
+        pathKeys.add(key);
 
-        const bx = VALLEY_BORDER_X + p.blockX * VALLEY_BLOCK_PX;
-        const by = VALLEY_BORDER_Y + p.blockY * VALLEY_BLOCK_PX;
+        if (
+          tile.tileX >= minTileX &&
+          tile.tileX <= maxTileX &&
+          tile.tileY >= minTileY &&
+          tile.tileY <= maxTileY
+        ) {
+          visiblePaths.push(tile);
+        }
+      } else {
+        if (tile.refreezeAtMs !== null && tile.refreezeAtMs <= nowMs) {
+          continue;
+        }
 
-        soilMinX = Math.min(soilMinX, bx);
-        soilMinY = Math.min(soilMinY, by);
-        soilMaxX = Math.max(soilMaxX, bx + VALLEY_BLOCK_PX);
-        soilMaxY = Math.max(soilMaxY, by + VALLEY_BLOCK_PX);
+        soilKeys.add(key);
+
+        if (
+          tile.tileX >= minTileX &&
+          tile.tileX <= maxTileX &&
+          tile.tileY >= minTileY &&
+          tile.tileY <= maxTileY
+        ) {
+          visibleSoil.push(tile);
+        }
       }
     }
 
-    if (visiblePatches.length > 0) {
-      const pad = 48;
-      const layerLeft = Math.max(winX, soilMinX - pad);
-      const layerTop = Math.max(winY, soilMinY - pad);
-      const layerRight = Math.min(winX + winW, soilMaxX + pad);
-      const layerBottom = Math.min(winY + winH, soilMaxY + pad);
+    // 4A. Player Shovel Permanent Paths (frosted cobblestone in Winter, dirt lane in Summer)
+    if (streetImage !== null && visiblePaths.length > 0) {
+      let minPx = winX + winW;
+      let minPy = winY + winH;
+      let maxPx = winX;
+      let maxPy = winY;
 
-      const soilLayerBounds = Skia.XYWHRect(
-        layerLeft,
-        layerTop,
-        Math.max(1, layerRight - layerLeft),
-        Math.max(1, layerBottom - layerTop),
+      for (let i = 0; i < visiblePaths.length; i += 1) {
+        const px = VALLEY_BORDER_X + visiblePaths[i].tileX * VALLEY_TILE_PX;
+        const py = VALLEY_BORDER_Y + visiblePaths[i].tileY * VALLEY_TILE_PX;
+
+        minPx = Math.min(minPx, px);
+        minPy = Math.min(minPy, py);
+        maxPx = Math.max(maxPx, px + VALLEY_TILE_PX);
+        maxPy = Math.max(maxPy, py + VALLEY_TILE_PX);
+      }
+
+      const pathBounds = Skia.XYWHRect(
+        Math.max(winX, minPx - 16),
+        Math.max(winY, minPy - 16),
+        Math.max(1, Math.min(winX + winW, maxPx + 16) - Math.max(winX, minPx - 16)),
+        Math.max(1, Math.min(winY + winH, maxPy + 16) - Math.max(winY, minPy - 16)),
       );
 
-      const maskPaint = Skia.Paint();
+      const pathMask = Skia.Paint();
 
-      maskPaint.setAntiAlias(true);
-      maskPaint.setColor(Skia.Color("#FFFFFF"));
-      maskPaint.setMaskFilter(
-        Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 14, true),
+      pathMask.setAntiAlias(true);
+      pathMask.setColor(Skia.Color("#FFFFFF"));
+      pathMask.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 4, true));
+
+      const pathRim = Skia.Paint();
+
+      pathRim.setAntiAlias(true);
+      pathRim.setColor(
+        Skia.Color(
+          season === "WINTER"
+            ? "rgba(136, 166, 206, 0.42)"
+            : "rgba(138, 108, 56, 0.40)",
+        ),
       );
 
-      const corePaint = Skia.Paint();
+      for (let i = 0; i < visiblePaths.length; i += 1) {
+        const p = visiblePaths[i];
+        const x = VALLEY_BORDER_X + p.tileX * VALLEY_TILE_PX;
+        const y = VALLEY_BORDER_Y + p.tileY * VALLEY_TILE_PX;
 
-      corePaint.setAntiAlias(true);
-      corePaint.setColor(Skia.Color("#FFFFFF"));
+        canvas.drawRRect(
+          Skia.RRectXY(
+            Skia.XYWHRect(x + 2, y + 2, VALLEY_TILE_PX - 4, VALLEY_TILE_PX - 4),
+            16,
+            16,
+          ),
+          pathRim,
+        );
+      }
 
-      const hasNeighbor = (bx: number, by: number): boolean =>
-        occupied.has(by * VALLEY_BLOCK_COLS + bx);
+      canvas.saveLayer(undefined, pathBounds);
 
-      const moundSteps = 4;
-      const stepSpan = VALLEY_BLOCK_PX / moundSteps;
+      for (let i = 0; i < visiblePaths.length; i += 1) {
+        const p = visiblePaths[i];
+        const x = VALLEY_BORDER_X + p.tileX * VALLEY_TILE_PX;
+        const y = VALLEY_BORDER_Y + p.tileY * VALLEY_TILE_PX;
+        const hasN = pathKeys.has((p.tileY - 1) * VALLEY_TILE_COLS + p.tileX);
+        const hasS = pathKeys.has((p.tileY + 1) * VALLEY_TILE_COLS + p.tileX);
+        const hasW = pathKeys.has(p.tileY * VALLEY_TILE_COLS + (p.tileX - 1));
+        const hasE = pathKeys.has(p.tileY * VALLEY_TILE_COLS + (p.tileX + 1));
 
-      canvas.saveLayer(undefined, soilLayerBounds);
-
-      for (let i = 0; i < visiblePatches.length; i += 1) {
-        const p = visiblePatches[i];
-        const x = VALLEY_BORDER_X + p.blockX * VALLEY_BLOCK_PX;
-        const y = VALLEY_BORDER_Y + p.blockY * VALLEY_BLOCK_PX;
-
-        const topOpen = !hasNeighbor(p.blockX, p.blockY - 1);
-        const bottomOpen = !hasNeighbor(p.blockX, p.blockY + 1);
-        const leftOpen = !hasNeighbor(p.blockX - 1, p.blockY);
-        const rightOpen = !hasNeighbor(p.blockX + 1, p.blockY);
-
-        const insetTop = topOpen ? 16 : -4;
-        const insetBottom = bottomOpen ? 16 : -4;
-        const insetLeft = leftOpen ? 16 : -4;
-        const insetRight = rightOpen ? 16 : -4;
+        const inT = hasN ? -2 : 6;
+        const inB = hasS ? -2 : 6;
+        const inL = hasW ? -2 : 6;
+        const inR = hasE ? -2 : 6;
 
         canvas.drawRRect(
           Skia.RRectXY(
             Skia.XYWHRect(
-              x + insetLeft,
-              y + insetTop,
-              VALLEY_BLOCK_PX - insetLeft - insetRight,
-              VALLEY_BLOCK_PX - insetTop - insetBottom,
+              x + inL,
+              y + inT,
+              VALLEY_TILE_PX - inL - inR,
+              VALLEY_TILE_PX - inT - inB,
             ),
-            26,
-            26,
+            14,
+            14,
           ),
-          maskPaint,
+          pathMask,
         );
-
-        if (topOpen) {
-          for (let m = 0; m < moundSteps; m += 1) {
-            const h = edgeHash(p.blockX, p.blockY, m + 10);
-            const cx = x + (m + 0.5) * stepSpan + h * 10;
-            const cy = y + 18 + h * 6;
-            const radX = stepSpan * 0.52 + h * 6;
-            const radY = 20 + Math.abs(h) * 8;
-
-            canvas.drawOval(
-              Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint,
-            );
-          }
-        }
-
-        if (bottomOpen) {
-          for (let m = 0; m < moundSteps; m += 1) {
-            const h = edgeHash(p.blockX, p.blockY, m + 30);
-            const cx = x + (m + 0.5) * stepSpan + h * 10;
-            const cy = y + VALLEY_BLOCK_PX - 18 + h * 6;
-            const radX = stepSpan * 0.52 + h * 6;
-            const radY = 20 + Math.abs(h) * 8;
-
-            canvas.drawOval(
-              Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint,
-            );
-          }
-        }
-
-        if (leftOpen) {
-          for (let m = 0; m < moundSteps; m += 1) {
-            const h = edgeHash(p.blockX, p.blockY, m + 50);
-            const cx = x + 18 + h * 6;
-            const cy = y + (m + 0.5) * stepSpan + h * 10;
-            const radX = 20 + Math.abs(h) * 8;
-            const radY = stepSpan * 0.52 + h * 6;
-
-            canvas.drawOval(
-              Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint,
-            );
-          }
-        }
-
-        if (rightOpen) {
-          for (let m = 0; m < moundSteps; m += 1) {
-            const h = edgeHash(p.blockX, p.blockY, m + 70);
-            const cx = x + VALLEY_BLOCK_PX - 18 + h * 6;
-            const cy = y + (m + 0.5) * stepSpan + h * 10;
-            const radX = 20 + Math.abs(h) * 8;
-            const radY = stepSpan * 0.52 + h * 6;
-
-            canvas.drawOval(
-              Skia.XYWHRect(cx - radX, cy - radY, radX * 2, radY * 2),
-              maskPaint,
-            );
-          }
-        }
       }
 
-      for (let i = 0; i < visiblePatches.length; i += 1) {
-        const p = visiblePatches[i];
-        const x = VALLEY_BORDER_X + p.blockX * VALLEY_BLOCK_PX;
-        const y = VALLEY_BORDER_Y + p.blockY * VALLEY_BLOCK_PX;
+      const pathShader = streetImage.makeShaderOptions(
+        TileMode.Repeat,
+        TileMode.Repeat,
+        FilterMode.Linear,
+        MipmapMode.Linear,
+      );
 
-        const insetTop = hasNeighbor(p.blockX, p.blockY - 1) ? 0 : 28;
-        const insetBottom = hasNeighbor(p.blockX, p.blockY + 1) ? 0 : 28;
-        const insetLeft = hasNeighbor(p.blockX - 1, p.blockY) ? 0 : 28;
-        const insetRight = hasNeighbor(p.blockX + 1, p.blockY) ? 0 : 28;
+      const pathFill = Skia.Paint();
 
-        canvas.drawRect(
-          Skia.XYWHRect(
-            x + insetLeft,
-            y + insetTop,
-            VALLEY_BLOCK_PX - insetLeft - insetRight,
-            VALLEY_BLOCK_PX - insetTop - insetBottom,
+      pathFill.setAntiAlias(true);
+      pathFill.setBlendMode(BlendMode.SrcIn);
+      pathFill.setShader(pathShader);
+
+      canvas.drawRect(pathBounds, pathFill);
+      canvas.restore();
+    }
+
+    // 4B. Player Hoe 1x1 Farm Soil Tiles (refreezes back to snow in Dead Winter)
+    if (soilImage !== null && visibleSoil.length > 0) {
+      let minSx = winX + winW;
+      let minSy = winY + winH;
+      let maxSx = winX;
+      let maxSy = winY;
+
+      for (let i = 0; i < visibleSoil.length; i += 1) {
+        const sx = VALLEY_BORDER_X + visibleSoil[i].tileX * VALLEY_TILE_PX;
+        const sy = VALLEY_BORDER_Y + visibleSoil[i].tileY * VALLEY_TILE_PX;
+
+        minSx = Math.min(minSx, sx);
+        minSy = Math.min(minSy, sy);
+        maxSx = Math.max(maxSx, sx + VALLEY_TILE_PX);
+        maxSy = Math.max(maxSy, sy + VALLEY_TILE_PX);
+      }
+
+      const soilBounds = Skia.XYWHRect(
+        Math.max(winX, minSx - 16),
+        Math.max(winY, minSy - 16),
+        Math.max(1, Math.min(winX + winW, maxSx + 16) - Math.max(winX, minSx - 16)),
+        Math.max(1, Math.min(winY + winH, maxSy + 16) - Math.max(winY, minSy - 16)),
+      );
+
+      const soilMask = Skia.Paint();
+
+      soilMask.setAntiAlias(true);
+      soilMask.setColor(Skia.Color("#FFFFFF"));
+      soilMask.setMaskFilter(Skia.MaskFilter.MakeBlur(BlurStyle.Normal, 4, true));
+
+      canvas.saveLayer(undefined, soilBounds);
+
+      for (let i = 0; i < visibleSoil.length; i += 1) {
+        const s = visibleSoil[i];
+        const x = VALLEY_BORDER_X + s.tileX * VALLEY_TILE_PX;
+        const y = VALLEY_BORDER_Y + s.tileY * VALLEY_TILE_PX;
+        const hasN = soilKeys.has((s.tileY - 1) * VALLEY_TILE_COLS + s.tileX);
+        const hasS = soilKeys.has((s.tileY + 1) * VALLEY_TILE_COLS + s.tileX);
+        const hasW = soilKeys.has(s.tileY * VALLEY_TILE_COLS + (s.tileX - 1));
+        const hasE = soilKeys.has(s.tileY * VALLEY_TILE_COLS + (s.tileX + 1));
+
+        const inT = hasN ? -2 : 7;
+        const inB = hasS ? -2 : 7;
+        const inL = hasW ? -2 : 7;
+        const inR = hasE ? -2 : 7;
+
+        canvas.drawRRect(
+          Skia.RRectXY(
+            Skia.XYWHRect(
+              x + inL,
+              y + inT,
+              VALLEY_TILE_PX - inL - inR,
+              VALLEY_TILE_PX - inT - inB,
+            ),
+            14,
+            14,
           ),
-          corePaint,
+          soilMask,
         );
       }
 
@@ -665,21 +708,51 @@ function recordVisibleWorldPicture(
         MipmapMode.Linear,
       );
 
-      const soilPaint = Skia.Paint();
+      const soilFill = Skia.Paint();
 
-      soilPaint.setAntiAlias(true);
-      soilPaint.setBlendMode(BlendMode.SrcIn);
-      soilPaint.setShader(soilShader);
+      soilFill.setAntiAlias(true);
+      soilFill.setBlendMode(BlendMode.SrcIn);
+      soilFill.setShader(soilShader);
 
-      canvas.drawRect(soilLayerBounds, soilPaint);
+      canvas.drawRect(soilBounds, soilFill);
       canvas.restore();
+
+      // Subtle icy frost crust warning on Winter soil tiles nearing refreeze
+      const frostWarnPaint = Skia.Paint();
+
+      frostWarnPaint.setAntiAlias(true);
+      frostWarnPaint.setStyle(PaintStyle.Stroke);
+      frostWarnPaint.setStrokeWidth(4);
+      frostWarnPaint.setColor(Skia.Color("rgba(224, 242, 254, 0.78)"));
+
+      for (let i = 0; i < visibleSoil.length; i += 1) {
+        const s = visibleSoil[i];
+
+        if (s.refreezeAtMs !== null && s.refreezeAtMs - nowMs <= 25_000) {
+          const x = VALLEY_BORDER_X + s.tileX * VALLEY_TILE_PX;
+          const y = VALLEY_BORDER_Y + s.tileY * VALLEY_TILE_PX;
+
+          canvas.drawRRect(
+            Skia.RRectXY(
+              Skia.XYWHRect(x + 8, y + 8, VALLEY_TILE_PX - 16, VALLEY_TILE_PX - 16),
+              12,
+              12,
+            ),
+            frostWarnPaint,
+          );
+        }
+      }
     }
   }
 
-  // Pass 4.5: Glowing 4x4 Placement Footprint Pad while Moving/Rotating a Building
+  // Pass 4.5: Tiered Building Footprint Pad + Front Doorway Marker while Moving/Rotating
   if (editingBuilding !== null) {
-    const padX = VALLEY_BORDER_X + editingBuilding.blockX * VALLEY_BLOCK_PX;
-    const padY = VALLEY_BORDER_Y + editingBuilding.blockY * VALLEY_BLOCK_PX;
+    const bounds = getBuildingTileBounds(editingBuilding);
+    const door = getBuildingDoorTile(editingBuilding);
+    const padX = VALLEY_BORDER_X + bounds.minTx * VALLEY_TILE_PX;
+    const padY = VALLEY_BORDER_Y + bounds.minTy * VALLEY_TILE_PX;
+    const padW = (bounds.maxTx - bounds.minTx + 1) * VALLEY_TILE_PX;
+    const padH = (bounds.maxTy - bounds.minTy + 1) * VALLEY_TILE_PX;
 
     const padFillPaint = Skia.Paint();
 
@@ -702,18 +775,32 @@ function recordVisibleWorldPicture(
     );
 
     const padRRect = Skia.RRectXY(
-      Skia.XYWHRect(
-        padX + 10,
-        padY + 10,
-        VALLEY_BLOCK_PX - 20,
-        VALLEY_BLOCK_PX - 20,
-      ),
-      26,
-      26,
+      Skia.XYWHRect(padX + 6, padY + 6, padW - 12, padH - 12),
+      20,
+      20,
     );
 
     canvas.drawRRect(padRRect, padFillPaint);
     canvas.drawRRect(padRRect, padStrokePaint);
+
+    // Warm golden doorway mat preview directly south of building entrance
+    const doorPaint = Skia.Paint();
+
+    doorPaint.setAntiAlias(true);
+    doorPaint.setColor(Skia.Color("rgba(245, 158, 11, 0.55)"));
+    canvas.drawRRect(
+      Skia.RRectXY(
+        Skia.XYWHRect(
+          VALLEY_BORDER_X + door.tileX * VALLEY_TILE_PX + 12,
+          VALLEY_BORDER_Y + door.tileY * VALLEY_TILE_PX + 12,
+          VALLEY_TILE_PX - 24,
+          VALLEY_TILE_PX - 24,
+        ),
+        12,
+        12,
+      ),
+      doorPaint,
+    );
   }
 
   // Pass 4.6: Planted Crops & Interactive World Resource Nodes (resources-atlas.webp)
@@ -1032,11 +1119,12 @@ export function TownMapCanvas({
   buildings,
   editingBuilding,
   isEditPlacementValid,
-  placedPatches,
+  valleyTiles,
   plantedTrees,
   plantedCrops,
   nodeCooldowns,
   focusedVillagerIndex,
+  liveIntentBridgeRef,
   onSelectVillager,
   onMoveEditingBuilding,
   onHarvestWorldNode,
@@ -1100,7 +1188,20 @@ export function TownMapCanvas({
     require("@/assets/resource-asset/compiled/resources-atlas.webp"),
   );
 
-  const initialRoutes = useMemo(() => createInitialVillagerRoutes(), []);
+  const navGrid = useMemo(
+    () => buildValleyNavGrid(buildings, valleyTiles, plantedCrops),
+    [buildings, valleyTiles, plantedCrops],
+  );
+
+  const navGridRef = useRef<ValleyNavGrid>(navGrid);
+  const buildingsRef = useRef<readonly StoredValleyBuilding[]>(buildings);
+
+  const initialRoutes = useMemo(
+    () => createInitialVillagerRoutes(buildings, navGrid),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [],
+  );
+
   const routesRef = useRef<VillagerRouteSegment[]>(initialRoutes);
   const routeStepCounterRef = useRef<number>(1);
   const mountEpochMsRef = useRef<number>(0);
@@ -1135,7 +1236,97 @@ export function TownMapCanvas({
     }
   }, [buildings, townHallBlockXShared, townHallBlockYShared]);
 
-  // Exact-wakeup JS scheduler: wakes ONLY when a villager finishes a walk leg or pause (0 React re-renders)
+  // Sync live walkability grid & immediately re-route any villager blocked by a moved building
+  useEffect(() => {
+    navGridRef.current = navGrid;
+    buildingsRef.current = buildings;
+
+    if (mountEpochMsRef.current === 0) {
+      return;
+    }
+
+    const nowClockMs = Date.now() - mountEpochMsRef.current;
+
+    routeStepCounterRef.current += 1;
+    routesRef.current = rerouteBlockedVillagers(
+      routesRef.current,
+      buildings,
+      navGrid,
+      nowClockMs,
+      routeStepCounterRef.current,
+    );
+    villagerRouteBuffer.set(packVillagerRoutesToFlatBuffer(routesRef.current));
+  }, [buildings, navGrid, villagerRouteBuffer]);
+
+  // Zero-rerender imperative bridge: WebSocket `NPC_INTENT` updates Skia RSXform SharedValue directly!
+  useEffect(() => {
+    if (liveIntentBridgeRef === undefined) {
+      return;
+    }
+
+    liveIntentBridgeRef.current = (
+      villagerIndex: number,
+      targetNodeId: StreetNodeId,
+      isIndoors: boolean,
+      durationMs: number,
+    ): void => {
+      if (villagerIndex < 0 || villagerIndex >= routesRef.current.length) {
+        return;
+      }
+
+      if (mountEpochMsRef.current === 0) {
+        mountEpochMsRef.current = Date.now();
+      }
+
+      const nowClockMs = Date.now() - mountEpochMsRef.current;
+      const prev = routesRef.current[villagerIndex];
+      const prevDur = prev.arriveClockMs - prev.departClockMs;
+
+      const progress =
+        prevDur > 1
+          ? Math.max(0, Math.min(1, (nowClockMs - prev.departClockMs) / prevDur))
+          : 1;
+
+      const curX = prev.fromX + (prev.toX - prev.fromX) * progress;
+      const curY = prev.fromY + (prev.toY - prev.fromY) * progress;
+      const destNode = TOWN_STREET_NODES[targetNodeId];
+      const dx = destNode.x - curX;
+      const dy = destNode.y - curY;
+
+      const facingDir =
+        Math.abs(dx) >= Math.abs(dy)
+          ? dx >= 0
+            ? 1
+            : 3
+          : dy >= 0
+            ? 0
+            : 2;
+
+      const safeDur = Math.max(2400, Math.min(16_000, durationMs));
+
+      routesRef.current[villagerIndex] = {
+        ...prev,
+        destinationLabel: destNode.label,
+        isIndoors,
+        fromX: curX,
+        fromY: curY,
+        toX: destNode.x,
+        toY: destNode.y,
+        departClockMs: nowClockMs,
+        arriveClockMs: nowClockMs + safeDur,
+        pauseUntilClockMs: nowClockMs + safeDur + 1200,
+        facingDir,
+      };
+
+      villagerRouteBuffer.set(packVillagerRoutesToFlatBuffer(routesRef.current));
+    };
+
+    return () => {
+      liveIntentBridgeRef.current = null;
+    };
+  }, [liveIntentBridgeRef, villagerRouteBuffer]);
+
+  // Exact-wakeup JS scheduler: wakes ONLY when a villager finishes a walk leg, forest trip, or house stay
   useEffect(() => {
     if (mountEpochMsRef.current === 0) {
       mountEpochMsRef.current = Date.now();
@@ -1163,6 +1354,8 @@ export function TownMapCanvas({
             seg,
             nowClockMs,
             routeStepCounterRef.current,
+            buildingsRef.current,
+            navGridRef.current,
           );
           current[i] = seg;
           changed = true;
@@ -1237,6 +1430,15 @@ export function TownMapCanvas({
     "worklet";
     const buf = villagerRouteBuffer.get();
     const base = index * VILLAGER_BUFFER_STRIDE;
+    const isIndoors = buf[base + 10];
+
+    // Villager entered a house: vanish cleanly inside until they step back out the door!
+    if (isIndoors === 1) {
+      val.set(0, 0, -9999, -9999);
+
+      return;
+    }
+
     const fromX = buf[base + 1];
     const fromY = buf[base + 2];
     const toX = buf[base + 3];
@@ -1286,6 +1488,11 @@ export function TownMapCanvas({
 
     const buf = villagerRouteBuffer.get();
     const base = idx * VILLAGER_BUFFER_STRIDE;
+
+    if (buf[base + 10] === 1) {
+      return Skia.XYWHRect(-9999, -9999, 0, 0);
+    }
+
     const fromX = buf[base + 1];
     const fromY = buf[base + 2];
     const toX = buf[base + 3];
@@ -1389,7 +1596,7 @@ export function TownMapCanvas({
         buildings,
         editingBuilding,
         isEditPlacementValid,
-        placedPatches,
+        valleyTiles,
         plantedTrees,
         plantedCrops,
         nodeCooldowns,
@@ -1408,7 +1615,7 @@ export function TownMapCanvas({
       buildings,
       editingBuilding,
       isEditPlacementValid,
-      placedPatches,
+      valleyTiles,
       plantedTrees,
       plantedCrops,
       nodeCooldowns,
@@ -1593,6 +1800,11 @@ export function TownMapCanvas({
 
       for (let i = 0; i < VILLAGER_COUNT; i += 1) {
         const base = i * VILLAGER_BUFFER_STRIDE;
+
+        if (buf[base + 10] === 1) {
+          continue;
+        }
+
         const fromX = buf[base + 1];
         const fromY = buf[base + 2];
         const toX = buf[base + 3];

@@ -1579,7 +1579,8 @@ Tools have durability and tier upgrades (`Copper → Iron → Steel → Frost Cr
 
 | Tool                      | Crafted At       | Recipe Inputs                                     | Used By Occupation         | What It Does                                                               |
 | :------------------------ | :--------------- | :------------------------------------------------ | :------------------------- | :------------------------------------------------------------------------- |
-| **Hoe**                   | Blacksmith Forge | `1 Iron Bar` + `1 Wood Handle`                    | **Farmer**                 | Tills Farm Plots for planting `Maize` and `Wheat`.                         |
+| **Hoe**                   | Blacksmith Forge | `1 Iron Bar` + `1 Wood Handle`                    | **Farmer**                 | Tills single `1×1` (`84px`) Farm Soil squares for planting. In Winter, exposed soil eventually refreezes back to snow (clearing unharvested crops). |
+| **Shovel**                | Blacksmith Forge | `1 Iron Bar` + `1 Wood Handle`                    | **Town Builder / Farmer**  | Lays permanent `1×1` (`84px`) Village Paths (frosted cobblestone in Winter, dirt lane in Summer) that never decay and speed up citizen travel; also clears tiles. |
 | **Watering Can**          | Blacksmith Forge | `1 Copper/Iron Bar`                               | **Farmer**                 | Waters crops to speed up growth.                                           |
 | **Sickle**                | Blacksmith Forge | `1 Iron Bar` + `1 Wood Handle`                    | **Farmer / Forager**       | Harvests mature `Maize`, `Wheat`, and `Herbs`.                             |
 | **Axe**                   | Blacksmith Forge | `1 Iron Bar` + `1 Wood Handle`                    | **Lumberjack**             | Chops forest trees for `Raw Logs`.                                         |
@@ -2121,6 +2122,28 @@ To make the single map feel genuinely inhabited every time the player opens the 
 | **Midday (`11:00 – 17:00`)**  | Bright alpine daylight             | **At Their Workplaces:** Milo in Farm Plots, Torg in Pine Forest, Barnaby at the Anvil Forge, Sora at the Lake Pier.   | Visiting a citizen _at their workplace_ grants `+10%` bonus Friendship XP on deliveries.                       |
 | **Evening (`17:00 – 22:00`)** | Warm golden lantern glow           | **The Frosty Yeti Tavern & Village Square Hearths:** Citizens unwind, swap market rumors, and drink Spiced Ale.        | Ideal time to gift `Honey Cakes` / `Spiced Ale` or host a **Tavern Feast** for town-wide morale!               |
 | **Night (`22:00 – 06:00`)**   | Deep `#0A0A0A` starry / Aurora sky | **Inside Homes** (except Grit at the Caves & Boris at the Tavern).                                                     | Requests can still be dropped at each citizen's **Porch Delivery Box** so night-owl players are never blocked! |
+
+### 22.1B Spatial Grid, Tiered Building Footprints & Indoor/Outdoor Citizen Pathing
+
+To guarantee citizens behave believably even as players customize, move, and expand their town:
+
+1. **Tiered Building Footprints (`84 × 84 px` Tile Grid):**
+   - **Small / Defense (`2×2` = `4` tiles):** Guard Watchtower, Snowball Catapult, Ice Slick Trap, Frost Shrine.
+   - **Homes & Cozy Shops (`3×3` = `9` tiles):** Citizen Cottage, Cozy Bakery, Apothecary, Smokehouse, Cheese Cellar, Builder Workshop.
+   - **Workshops & Mills (`4×4` = `16` tiles):** Sawmill, Blacksmith, Windmill, Trade Post, Fishing Pier, Barracks, Blast Furnace, Tavern, Minehead.
+   - **Civic & Ranch Landmarks (`5×4` = `20` tiles):** Town Hall, Bank Treasury, Yeti Lodge, Yak Barn, Sun-Glass Greenhouse, Grand Yeti Monument.
+   - Every building footprint is **strictly impassable** and exposes a **1-tile Front Doorway** directly south of the building entrance.
+2. **Weighted Dynamic Pathfinding + Off-Road Forest Exploration:**
+   - **Permanent Shovel Paths (`cost = 1`):** Citizens prefer roads and walk `+35%` faster on them.
+   - **Open Snow / Grass & Forest Edge (`cost = 4`):** Citizens occasionally venture off-road into the forest or lake shore to forage, chop deadfall, or explore.
+   - **Farm Soil & Crops (`cost = 12`):** Citizens route around tilled farms so they do not trample crops.
+   - **Buildings & Deep Lake (`blocked`):** Recomputed immediately whenever a building moves so citizens never walk over or through houses.
+3. **Entering & Exiting Houses:**
+   - When a citizen's route arrives at a building's **Front Doorway tile**, they enter the structure and **disappear from the exterior map** for their indoor task (resting, baking, smelting, banking, or warming up).
+   - When their indoor timer finishes, they **reappear right at the Front Doorway tile** facing South and rejoin the street network.
+4. **Tool Floater & Winter Soil Refreeze Rule:**
+   - A dedicated wooden **Tool Floater** on the right dock toggles between **`Hand`** (safe default inspect/harvest), **`Hoe`** (`1×1` Farm Soil), and **`Shovel`** (`1×1` Permanent Path / Clear).
+   - **Winter Freeze Decay:** In **Winter**, `Hoe`-tilled soil starts a refreeze countdown; when it expires, the tile reverts back to natural snow and any crop still planted on that tile disappears into the freeze. **Shovel paths never refreeze or disappear.**
 
 ### 22.2 Dynamic Citizen Request Scaling Formula
 

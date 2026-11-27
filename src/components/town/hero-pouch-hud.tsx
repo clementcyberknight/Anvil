@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 
 import type { TownHallTab } from '@/components/town/town-hall-modal';
+import { WOOD_THEME } from '@/components/town/wood-theme';
 import {
   canCraftRecipe,
   CRAFT_RECIPES,
@@ -47,16 +48,23 @@ import {
   VILLAGER_ROLE_ROW,
 } from '@/game/villager-atlas';
 
+export type HeldTool =
+  | { readonly kind: 'HAND' }
+  | { readonly kind: 'HOE' }
+  | { readonly kind: 'SHOVEL' }
+  | { readonly kind: 'BROOM' }
+  | { readonly kind: 'SEED'; readonly seed: CropKind | 'pine' };
+
 interface HeroPouchHudProps {
   readonly seasonalClock: SeasonalClockState;
   readonly coins: number;
   readonly pouchEntries: readonly PouchEntry[];
   readonly governance: TownGovernanceState;
-  readonly selectedSeed: CropKind | 'pine';
+  readonly heldTool: HeldTool;
   readonly citizenCount: number;
   readonly buildingCount: number;
   readonly visible: boolean;
-  readonly onSelectSeed: (seed: CropKind | 'pine') => void;
+  readonly onSelectHeldTool: (tool: HeldTool) => void;
   readonly onCraftRecipe: (recipeId: string) => void;
   readonly onSellItem: (itemId: GameIconKey) => void;
   readonly onBuySeed: (seedItemId: GameIconKey) => void;
@@ -191,22 +199,61 @@ function GameAtlasIcon({
   );
 }
 
+interface HeldToolDisplay {
+  readonly iconKey: GameIconKey;
+  readonly pillLabel: string;
+}
+
+function resolveHeldToolDisplay(
+  tool: HeldTool,
+  pouchEntries: readonly PouchEntry[]
+): HeldToolDisplay {
+  if (tool.kind === 'HOE') {
+    return { iconKey: 'copperHoe', pillLabel: 'Hoe' };
+  }
+
+  if (tool.kind === 'SHOVEL') {
+    return { iconKey: 'ironShovel', pillLabel: 'Path' };
+  }
+
+  if (tool.kind === 'BROOM') {
+    return { iconKey: 'clearBroom', pillLabel: 'Clear' };
+  }
+
+  if (tool.kind === 'SEED') {
+    if (tool.seed === 'pine') {
+      const qty = getPouchQty(pouchEntries, 'seedPinecone');
+
+      return { iconKey: 'seedPinecone', pillLabel: `Pine ×${qty}` };
+    }
+
+    const def = CROP_DEFINITIONS[tool.seed];
+    const qty = getPouchQty(pouchEntries, def.seedItemId);
+    const shortName = def.name.split(' ')[0];
+
+    return { iconKey: def.seedItemId, pillLabel: `${shortName} ×${qty}` };
+  }
+
+  return { iconKey: 'yetiHand', pillLabel: 'Hand' };
+}
+
 export function HeroPouchHud({
   seasonalClock,
   coins,
   pouchEntries,
   governance,
-  selectedSeed,
+  heldTool,
   citizenCount,
   buildingCount,
   visible,
-  onSelectSeed,
+  onSelectHeldTool,
   onCraftRecipe,
   onSellItem,
   onBuySeed,
   onOpenTownHall,
 }: HeroPouchHudProps) {
   const [activeModal, setActiveModal] = useState<ActiveModal>('NONE');
+  const [toolDrawerOpen, setToolDrawerOpen] = useState<boolean>(false);
   const [profileTab, setProfileTab] = useState<ProfileTab>('FOUNDER');
   const [pouchTab, setPouchTab] = useState<PouchTab>('ITEMS');
 
@@ -233,38 +280,134 @@ export function HeroPouchHud({
     ? computeProjectedApproval(governance, seasonalClock.season)
     : governance.approvalPct;
 
+  const heldDisplay = resolveHeldToolDisplay(heldTool, pouchEntries);
+
   const activeSeedLabel =
-    selectedSeed === 'pine'
-      ? 'Pine Sapling'
-      : CROP_DEFINITIONS[selectedSeed].name;
+    heldTool.kind === 'SEED'
+      ? heldTool.seed === 'pine'
+        ? 'Pine Sapling'
+        : CROP_DEFINITIONS[heldTool.seed].name
+      : 'None (equip below)';
 
   return (
     <>
-      {/* Clean bottom-right floating dock: Founder Portrait + Pouch + Town Hall/War Shield */}
+      {/* Wooden Quick-Equip Tool & Seed Drawer popped open beside the Held-Item Floater */}
+      {toolDrawerOpen && (
+        <View style={styles.toolDrawerWrap} pointerEvents="box-none">
+          <View style={styles.toolDrawer}>
+            <View style={styles.toolDrawerHeader}>
+              <Text style={styles.toolDrawerTitle}>Holding Tool</Text>
+              <Pressable
+                onPress={() => {
+                  setToolDrawerOpen(false);
+                }}
+                style={styles.toolDrawerClose}
+              >
+                <Text style={styles.modalCloseText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.toolGrid}>
+              {(
+                [
+                  { kind: 'HAND', icon: 'yetiHand', label: 'Hand' },
+                  { kind: 'HOE', icon: 'copperHoe', label: 'Hoe (Farm)' },
+                  { kind: 'SHOVEL', icon: 'ironShovel', label: 'Shovel (Path)' },
+                  { kind: 'BROOM', icon: 'clearBroom', label: 'Clear' },
+                ] as const
+              ).map((t) => {
+                const active = heldTool.kind === t.kind;
+
+                return (
+                  <Pressable
+                    key={t.kind}
+                    onPress={() => {
+                      onSelectHeldTool({ kind: t.kind });
+                      setToolDrawerOpen(false);
+                    }}
+                    style={[
+                      styles.toolChoiceBtn,
+                      active && styles.toolChoiceActive,
+                    ]}
+                  >
+                    <GameAtlasIcon
+                      atlas={iconsAtlas}
+                      iconKey={t.icon}
+                      size={30}
+                    />
+                    <Text style={styles.toolChoiceText}>{t.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <Text style={styles.toolSectionLabel}>PLANT SEEDS</Text>
+            <View style={styles.seedChipRow}>
+              {SEED_OPTIONS.map((opt) => {
+                const qty = getPouchQty(pouchEntries, opt.seedItemId);
+
+                const active =
+                  heldTool.kind === 'SEED' && heldTool.seed === opt.seedKey;
+
+                return (
+                  <Pressable
+                    key={opt.seedKey}
+                    onPress={() => {
+                      onSelectHeldTool({ kind: 'SEED', seed: opt.seedKey });
+                      setToolDrawerOpen(false);
+                    }}
+                    style={[
+                      styles.seedQuickChip,
+                      active && styles.toolChoiceActive,
+                    ]}
+                  >
+                    <GameAtlasIcon
+                      atlas={iconsAtlas}
+                      iconKey={opt.seedItemId}
+                      size={24}
+                    />
+                    <Text style={styles.seedQuickText}>
+                      {opt.label.split(' ')[0]} ×{qty}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Clean bottom-right floating dock: uniform Pouch-style wooden floaters */}
       <View style={styles.floatingDock} pointerEvents="box-none">
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="Open Founder Yeti Profile"
           onPress={() => {
+            setToolDrawerOpen(false);
             setActiveModal('PROFILE');
           }}
-          style={styles.heroFrame}
+          style={styles.dockFloater}
         >
           <View style={styles.heroPortraitClip}>
             <YetiAtlasPortrait
               atlas={villagersAtlas}
               roleRow={VILLAGER_ROLE_ROW.hero}
-              size={58}
+              size={50}
             />
           </View>
           <View
             style={[
-              styles.levelBadge,
-              isPlayerMayor ? styles.mayorBadge : styles.privateerBadge,
+              styles.floatPill,
+              !isPlayerMayor && styles.floatPillPrivateer,
             ]}
           >
-            <Text style={styles.levelBadgeText}>
-              {isPlayerMayor ? 'M' : 'W'}
+            <Text
+              style={[
+                styles.floatPillText,
+                !isPlayerMayor && styles.floatPillTextPrivateer,
+              ]}
+            >
+              {isPlayerMayor ? 'Mayor' : 'Warlord'}
             </Text>
           </View>
         </Pressable>
@@ -273,13 +416,14 @@ export function HeroPouchHud({
           accessibilityRole="button"
           accessibilityLabel="Open Founder Pouch Inventory"
           onPress={() => {
+            setToolDrawerOpen(false);
             setActiveModal('POUCH');
           }}
-          style={styles.pouchButton}
+          style={styles.dockFloater}
         >
           <GameAtlasIcon atlas={iconsAtlas} iconKey="founderPouch" size={46} />
-          <View style={styles.coinFloatPill}>
-            <Text style={styles.coinFloatText}>{coins}</Text>
+          <View style={styles.floatPill}>
+            <Text style={styles.floatPillText}>{coins}</Text>
           </View>
         </Pressable>
 
@@ -287,17 +431,41 @@ export function HeroPouchHud({
           accessibilityRole="button"
           accessibilityLabel="Open Town Hall and War Room"
           onPress={() => {
+            setToolDrawerOpen(false);
             onOpenTownHall('POLICY');
           }}
-          style={styles.warButton}
+          style={styles.dockFloater}
         >
           <GameAtlasIcon
             atlas={iconsAtlas}
             iconKey={isPlayerMayor ? 'mayorCrown' : 'raidAxesShield'}
-            size={38}
+            size={42}
           />
-          <View style={styles.armyFloatPill}>
-            <Text style={styles.armyFloatText}>{totalArmy}</Text>
+          <View style={styles.floatPill}>
+            <Text style={styles.floatPillText}>{totalArmy}</Text>
+          </View>
+        </Pressable>
+
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Switch Held Tool or Seed"
+          onPress={() => {
+            setToolDrawerOpen((prev) => !prev);
+          }}
+          style={[
+            styles.dockFloater,
+            toolDrawerOpen && styles.dockFloaterActive,
+          ]}
+        >
+          <GameAtlasIcon
+            atlas={iconsAtlas}
+            iconKey={heldDisplay.iconKey}
+            size={42}
+          />
+          <View style={styles.floatPill}>
+            <Text style={styles.floatPillText} numberOfLines={1}>
+              {heldDisplay.pillLabel}
+            </Text>
           </View>
         </Pressable>
       </View>
@@ -541,7 +709,7 @@ export function HeroPouchHud({
                 [
                   { key: 'ITEMS', label: 'Items & Sell' },
                   { key: 'CRAFT', label: 'Craft' },
-                  { key: 'SEEDS', label: `Seeds (${activeSeedLabel})` },
+                  { key: 'SEEDS', label: 'Seeds' },
                 ] as const
               ).map((t) => (
                 <Pressable
@@ -675,14 +843,16 @@ export function HeroPouchHud({
               {pouchTab === 'SEEDS' && (
                 <>
                   <Text style={styles.seedBanner}>
-                    Active Seed on Soil Tap: {activeSeedLabel}. Tap snow to
-                    clear soil, then tap cleared soil to plant!
+                    Holding Seed: {activeSeedLabel}. Till 1×1 soil with the Hoe,
+                    then tap tilled soil while holding a Seed!
                   </Text>
                   {SEED_OPTIONS.map((opt) => {
                     const spec = getEconomyItem(opt.seedItemId);
                     const qty = getPouchQty(pouchEntries, opt.seedItemId);
                     const buyPrice = spec !== null ? spec.npcBuyPrice : 5;
-                    const isSelected = selectedSeed === opt.seedKey;
+
+                    const isSelected =
+                      heldTool.kind === 'SEED' && heldTool.seed === opt.seedKey;
 
                     return (
                       <View
@@ -708,15 +878,24 @@ export function HeroPouchHud({
                         <View style={styles.seedActionCol}>
                           <Pressable
                             onPress={() => {
-                              onSelectSeed(opt.seedKey);
+                              onSelectHeldTool({
+                                kind: 'SEED',
+                                seed: opt.seedKey,
+                              });
+                              setActiveModal('NONE');
                             }}
                             style={[
                               styles.selectSeedBtn,
                               isSelected && styles.selectSeedBtnActive,
                             ]}
                           >
-                            <Text style={styles.selectSeedText}>
-                              {isSelected ? 'Active' : 'Equip'}
+                            <Text
+                              style={[
+                                styles.selectSeedText,
+                                isSelected && styles.selectSeedTextActive,
+                              ]}
+                            >
+                              {isSelected ? 'Holding' : 'Hold'}
                             </Text>
                           </Pressable>
                           <Pressable
@@ -753,62 +932,15 @@ const styles = StyleSheet.create({
     right: 14,
     bottom: 20,
     alignItems: 'center',
-    gap: 10,
+    gap: 14,
   },
-  heroFrame: {
-    width: 66,
-    height: 66,
-    borderRadius: 33,
-    backgroundColor: 'rgba(10, 14, 24, 0.88)',
-    borderWidth: 2.5,
-    borderColor: '#40A7FC',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
-  },
-  heroPortraitClip: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(192, 206, 245, 0.22)',
-  },
-  levelBadge: {
-    position: 'absolute',
-    top: -3,
-    right: -3,
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  mayorBadge: {
-    backgroundColor: '#2563EB',
-  },
-  privateerBadge: {
-    backgroundColor: '#DC2626',
-  },
-  levelBadgeText: {
-    color: '#FFFFFF',
-    fontSize: 10.5,
-    fontWeight: '900',
-  },
-  pouchButton: {
+  dockFloater: {
     width: 60,
     height: 60,
     borderRadius: 20,
-    backgroundColor: 'rgba(24, 16, 12, 0.88)',
+    backgroundColor: WOOD_THEME.dockBg,
     borderWidth: 2,
-    borderColor: '#C67432',
+    borderColor: WOOD_THEME.dockBorder,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#000000',
@@ -817,57 +949,139 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 6,
   },
-  coinFloatPill: {
+  dockFloaterActive: {
+    borderColor: WOOD_THEME.ctaGoldBg,
+    borderWidth: 2.5,
+  },
+  toolDrawerWrap: {
     position: 'absolute',
-    bottom: -6,
-    backgroundColor: '#F59E0B',
-    borderRadius: 999,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderWidth: 1.5,
-    borderColor: '#0A0A0A',
+    right: 84,
+    bottom: 20,
+    left: 14,
+    alignItems: 'flex-end',
   },
-  coinFloatText: {
-    color: '#0A0A0A',
-    fontSize: 10,
-    fontWeight: '900',
+  toolDrawer: {
+    width: '100%',
+    maxWidth: 276,
+    backgroundColor: WOOD_THEME.sheetBg,
+    borderRadius: 20,
+    borderWidth: 3,
+    borderColor: WOOD_THEME.sheetBorder,
+    padding: 12,
+    gap: 8,
+    shadowColor: '#2E1A0B',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 8,
   },
-  warButton: {
-    width: 56,
-    height: 56,
-    borderRadius: 18,
-    backgroundColor: 'rgba(14, 21, 37, 0.92)',
-    borderWidth: 2,
-    borderColor: '#40A7FC',
+  toolDrawerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  toolDrawerTitle: {
+    color: WOOD_THEME.inkHeading,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  toolDrawerClose: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: WOOD_THEME.closeBg,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000000',
-    shadowOpacity: 0.38,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 6,
   },
-  armyFloatPill: {
+  toolGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  toolChoiceBtn: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: WOOD_THEME.cardBg,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: WOOD_THEME.cardBorder,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
+  toolChoiceActive: {
+    borderColor: WOOD_THEME.sheetInnerBorder,
+    backgroundColor: WOOD_THEME.cardHighlightBg,
+  },
+  toolChoiceText: {
+    color: WOOD_THEME.inkPrimary,
+    fontSize: 11,
+    fontWeight: '800',
+    flexShrink: 1,
+  },
+  toolSectionLabel: {
+    color: WOOD_THEME.inkMuted,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    marginTop: 2,
+  },
+  seedChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 5,
+  },
+  seedQuickChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: WOOD_THEME.cardBg,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.cardBorder,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  seedQuickText: {
+    color: WOOD_THEME.inkPrimary,
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  heroPortraitClip: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  floatPill: {
     position: 'absolute',
-    bottom: -5,
-    right: -4,
-    backgroundColor: '#40A7FC',
+    bottom: -7,
+    backgroundColor: WOOD_THEME.ctaGoldBg,
     borderRadius: 999,
-    minWidth: 20,
-    paddingHorizontal: 5,
-    paddingVertical: 1,
+    minWidth: 24,
+    paddingHorizontal: 7,
+    paddingVertical: 1.5,
     alignItems: 'center',
     borderWidth: 1.5,
-    borderColor: '#0A0A0A',
+    borderColor: WOOD_THEME.inkPrimary,
   },
-  armyFloatText: {
-    color: '#0A0A0A',
+  floatPillPrivateer: {
+    backgroundColor: WOOD_THEME.ctaDangerBg,
+  },
+  floatPillText: {
+    color: WOOD_THEME.inkPrimary,
     fontSize: 10,
     fontWeight: '900',
+  },
+  floatPillTextPrivateer: {
+    color: '#FFFFFF',
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(6, 10, 18, 0.68)',
+    backgroundColor: WOOD_THEME.backdrop,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 14,
@@ -949,9 +1163,9 @@ const styles = StyleSheet.create({
     width: 78,
     height: 78,
     borderRadius: 39,
-    backgroundColor: '#DCEBFA',
-    borderWidth: 2,
-    borderColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.cardMutedBg,
+    borderWidth: 2.5,
+    borderColor: WOOD_THEME.sheetInnerBorder,
     overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1047,20 +1261,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.ctaGoldBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.ctaGoldBorder,
     borderRadius: 12,
     paddingVertical: 11,
   },
   quickBtnWar: {
-    backgroundColor: '#0E1525',
+    backgroundColor: WOOD_THEME.ctaWoodBg,
+    borderColor: WOOD_THEME.sheetBorder,
   },
   quickBtnText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 13,
     fontWeight: '800',
   },
   quickBtnWarText: {
-    color: '#FFFFFF',
+    color: WOOD_THEME.inkOnDark,
     fontSize: 13,
     fontWeight: '800',
   },
@@ -1132,9 +1349,9 @@ const styles = StyleSheet.create({
     borderColor: '#DEC9A4',
   },
   seedRowSelected: {
-    borderColor: '#2563EB',
+    borderColor: WOOD_THEME.sheetInnerBorder,
     borderWidth: 2,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: WOOD_THEME.cardHighlightBg,
   },
   itemThumb: {
     width: 44,
@@ -1159,23 +1376,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   rowStation: {
-    color: '#2563EB',
+    color: WOOD_THEME.sheetBorder,
     fontSize: 10.5,
     fontWeight: '700',
   },
   sellBtn: {
-    backgroundColor: '#F59E0B',
+    backgroundColor: WOOD_THEME.ctaGoldBg,
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
   sellBtnText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 11,
     fontWeight: '800',
   },
   craftBtn: {
-    backgroundColor: '#16A34A',
+    backgroundColor: WOOD_THEME.ctaGreenBg,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -1189,10 +1406,12 @@ const styles = StyleSheet.create({
     opacity: 0.4,
   },
   seedBanner: {
-    color: '#4A2C14',
+    color: WOOD_THEME.inkHeading,
     fontSize: 11.5,
     fontWeight: '700',
-    backgroundColor: '#FEF3C7',
+    backgroundColor: WOOD_THEME.badgeGoldBg,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.cardBorder,
     borderRadius: 10,
     padding: 9,
   },
@@ -1201,27 +1420,30 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   selectSeedBtn: {
-    backgroundColor: '#E7D8BA',
+    backgroundColor: WOOD_THEME.tabInactiveBg,
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
   selectSeedBtnActive: {
-    backgroundColor: '#2563EB',
+    backgroundColor: WOOD_THEME.ctaWoodBg,
   },
   selectSeedText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 10.5,
     fontWeight: '800',
   },
+  selectSeedTextActive: {
+    color: WOOD_THEME.inkOnDark,
+  },
   buySeedBtn: {
-    backgroundColor: '#C0CEF5',
+    backgroundColor: WOOD_THEME.ctaGoldBg,
     borderRadius: 8,
     paddingHorizontal: 9,
     paddingVertical: 5,
   },
   buySeedText: {
-    color: '#0A0A0A',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 10.5,
     fontWeight: '800',
   },

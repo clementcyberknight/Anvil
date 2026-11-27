@@ -60,23 +60,33 @@
 All gameplay takes place on **one unified map** divided into 5 connected zones (**Village Square, Pine Forest, Frozen Lake, Mountain Pass, Crystal Caves**):
 
 - **Seasonal Map Transformation (Summer vs. Winter):**
-  - Skia shaders and tile layers transition seamlessly between **Summer** (flowing river, lush crops, green forest canopy) and **Winter** (frozen lake surface unlocking ice-fishing & ice-cavern shortcuts, snow particle shaders, dormant crop fields).
+  - Skia shaders and tile layers transition seamlessly between **Summer** (flowing river, lush crops, green forest canopy) and **Winter** (frozen lake surface unlocking ice-fishing & ice-cavern shortcuts, snow particle shaders, Winter soil refreeze decay).
+- **Tile Grid, Tiered Building Footprints & Tool Editing (`84px` Tiles):**
+  - The valley uses a fine `84 × 84 px` tile grid grouped visually into `4 × 4` blocks (`56 × 100` blocks = `224 × 400` tiles).
+  - **Tiered Building Footprints:** Structures declare exact tile footprints (`2×2` defenses/props, `3×3` cottages/small shops, `4×4` workshops/mills, `5×4` civic landmarks/barns) plus a 1-tile **Front Doorway** south of the entrance. Every footprint tile is solid and impassable.
+  - **Tool-Gated Tile Shaping (`town_land_tiles` in SQLite):** Default tap mode is safe `Hand / Inspect` (never accidentally digs mud). Players open the wooden **Tool Floater** to equip:
+    - **`Hoe` (`1×1` Farm Soil):** Tills a single `1×1` tile of loamy soil for planting. In **Winter**, exposed tilled soil carries a `refreezeAtMs` timer — when frost reclaims the tile, the soil reverts to snowy ground and any unharvested crop on it disappears.
+    - **`Shovel` (`1×1` Permanent Path):** Lays a single `1×1` village path tile (frosted cobblestone in Winter, dirt lane in Summer). **Paths never refreeze or decay** across seasons and automatically fuse into the town road network.
+- **Dynamic Walkability Grid, Off-Road Forest Trips & House Entry:**
+  - A compact `Uint8Array` tile walkability grid is rebuilt only on building placement/move or path/farm edits (`< 0.1 ms`), preventing villagers from ever walking over or through houses — even after buildings are moved.
+  - Weighted A\* pathfinding assigns `cost = 1` to permanent **Paths** (`+35%` walk speed), `cost = 4` to **Open Snow/Grass & Forest Edge** (allowing citizens to walk off-road into the forest/lake shore), `cost = 12` to **Farm Soil/Crops**, and `∞` (blocked) to **Buildings & Deep Water**.
+  - **Entering & Leaving Houses:** Upon reaching a building's **Front Doorway tile**, villagers smoothly step inside and vanish (`scale = 0` in the Skia `<Atlas>` RSXform buffer — zero React re-renders) for an indoor stay, then reappear at the Front Doorway facing South when they leave.
 - **In-Place Building Evolution:**
   - Workshop plots and town landmarks render their current upgrade tier (`Tier 1..10`) directly on the map canvas without loading separate world maps.
 - **UI-Thread Camera & Movement:**
   - Pan, zoom, and character pathing run on the UI thread via `react-native-reanimated` worklets and `react-native-gesture-handler`.
 
-### B. Brand Design Tokens (Yeti Palette)
+### B. Brand & Wooden Parchment UI Tokens
 
-Exact hex values sampled from `assets/yeti/android-icon-background.png`:
+In-world modals, floating cards, edit bars, raid trays, and dock floaters follow a unified **Cozy Wooden Parchment** theme (`src/components/town/wood-theme.ts`) paired with the Yeti brand palette:
 
 | Token | Hex | Role |
 | :--- | :--- | :--- |
-| `brandBlue` | `#40A7FC` | Primary Yeti blue for active accents, focus states, and highlights. |
-| `brandIce` | `#C0CEF5` | Splash screen & Android adaptive icon background, primary soft CTA buttons. |
-| `brandBlack` | `#000000` (`#0A0A0A` UI) | High-contrast typography, active indicators, and borders. |
-| `brandWhite` | `#FFFFFF` | Primary light canvas background and card surfaces. |
-| `brandFrost` | `#E2E2E4` | Subtle surface tint and inactive UI elements (sampled from Yeti shading). |
+| `sheetBg` / `cardBg` | `#F5ECD8` / `#FFF9EC` | Warm cream parchment modals, building edit bars, and citizen cards. |
+| `sheetBorder` / `dockBorder` | `#8B5A2B` / `#C67432` | Carved oak modal frames and uniform `60×60` squircle dock floaters. |
+| `ctaGoldBg` / `inkPrimary` | `#F59E0B` / `#2E1A0B` | Primary amber-gold action pills and high-contrast espresso ink. |
+| `brandBlue` | `#40A7FC` | Yeti mascot accent, active highlights, and winter frost accents. |
+| `brandIce` | `#C0CEF5` | Splash screen & Android adaptive icon background. |
 
 ---
 
@@ -123,12 +133,14 @@ The **AI Mayor** is an autonomous server-side agent that governs the town's fisc
 3. **AI Economic Events:**
    - Generates periodic supply/demand shocks (e.g., *Cave Frost Collapse*, *Harvest Festival*, *Timber Shortage*) that buff or reduce specific resource yields and trigger new NPC citizen requests.
 
-### B. Player-Driven Inter-Town Marketplace
-- **Shared Order Book (`POST /api/market/orders`, `POST /api/market/fulfill`):**
-  - Players post buy or sell orders for resources (`wood, stone, ore, fish, herbs, cooked food, furniture, tools`).
-  - Players from other towns fulfill those orders. Every trade executes inside an atomic PostgreSQL transaction (escrowing items, transferring coins, and deducting the AI Mayor's tax cut into the Town Treasury).
-- **Live Price & Order Updates:**
-  - Bun.js broadcasts order fills, seasonal transitions, and AI Mayor decrees over lightweight WebSockets/SSE (`< 1–2 KB` JSON payloads).
+### B. Player-Driven Inter-Town Marketplace & Multiplexed Sync (`src/lib/anvil-live-sync.ts`)
+- **Zero-Rerender Multiplexed Native WebSocket (`AnvilMultiplexedSyncClient`):**
+  - Opens **one** persistent native `WebSocket` (`perMessageDeflate: true`) multiplexed across `user:<accountId>` (personal sale fills & raid alerts) and `town:<activeTownId>` (live valley intents).
+  - Incoming `NPC_INTENT` packets (`~0.08 Hz` intent vectors, `~220 B/s`) bypass React `useState` completely via `liveIntentBridgeRef`, writing directly into `TownMapCanvas`'s Reanimated `SharedValue` flat buffer (`useRSXformBuffer`) for locked 60/120fps motion.
+  - **MMKV Idempotent Outbox + `?lastSeq` Cellular Delta Catch-Up:** Optimistic player actions (`HARVEST_GAIN`, `LOCAL_SELL`, `LOCAL_BUY`) commit to `MMKV` in `0 ms` and queue `{ cmdId }` in an `MMKV` outbox; reconnects pass `?lastSeq=<n>` to replay only missed frames (`DELTA_BATCH`) from the server's 256-slot ring buffer.
+  - **1-Frame Town Hop (`SWITCH_TOWN`):** Visiting another valley swaps `town:<id>` pub/sub subscriptions over the already-open socket in `< 15 ms` with zero new TLS handshake.
+- **Atomic Escrow Order Book (`POST /api/market/orders`, `POST /api/market/orders/:id/fulfill`):**
+  - Players post escrowed sell orders from their Pouch; buyers in other valleys fulfill them atomically (`private.settle_intertown_order` / `InterTownMultiplayerHub`), pushing live `ORDER_FILLED` coin chimes to `user:<sellerId>` and crediting the `6%` export tariff to the seller's Home Town Treasury without cross-shard locks.
 
 ---
 

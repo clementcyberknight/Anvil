@@ -13,12 +13,15 @@ A mobile multiplayer town-building, resource-management, and player-driven econo
 2. **Gather**
    * Collect **wood, stone, berries, ores, fish, herbs**, and seasonal materials.
    * Use crafted tools and interact directly with the environment with crisp animations and haptics.
-3. **Produce**
-   * Plant crops, raise animals, process raw materials, cook food, craft furniture, and manufacture products across your town's workshops.
+3. **Produce & Shape Your Valley (Tool-Driven Farming & Permanent Paths)**
+   * Switch tools cleanly via the wooden **Tool Floater** (`Hand`, `Hoe`, `Shovel`, `Seed`) — default `Hand` mode prevents accidental digging when panning or inspecting citizens.
+   * Use the **Hoe** to till individual `1×1` farm squares (`84px`) for crops; in **Winter**, exposed tilled soil gradually refreezes back into snow and clears any unharvested crops left in the frost, making timing and Summer preparation essential.
+   * Use the **Shovel** to lay permanent `1×1` village paths that survive every Winter, guide citizens faster across town, and connect newly placed or moved buildings.
 4. **Trade (Player-Driven Marketplace)**
    * Post buy/sell trade orders on the shared **Inter-Town Marketplace** and fulfill orders posted by players from other towns to acquire scarce resources and grow your businesses.
-5. **Expand**
-   * Upgrade workshops and buildings in place on the single map, unlock deeper biome zones, improve relationships with occupation NPCs, earn XP, and expand your settlement.
+5. **Expand (Tiered Footprints & Living Indoor/Outdoor Town)**
+   * Place, move, rotate, and upgrade buildings with realistic tiered footprints (`2×2` defenses, `3×3` cottages/shops, `4×4` workshops, `5×4` landmarks).
+   * Autonomous citizens dynamically path around buildings, stroll off-road into the pine forest to forage or gather, and **physically enter and exit houses** through front doorways.
 
 ---
 

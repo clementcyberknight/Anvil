@@ -1,9 +1,9 @@
 import * as Haptics from 'expo-haptics';
 import { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BuildingEditBar } from '@/components/town/building-edit-bar';
-import { HeroPouchHud } from '@/components/town/hero-pouch-hud';
+import { type HeldTool, HeroPouchHud } from '@/components/town/hero-pouch-hud';
 import { RivalRaidScreen } from '@/components/town/rival-raid-screen';
 import {
   TownHallModal,
@@ -14,12 +14,12 @@ import {
   TownMapCanvas,
 } from '@/components/town/town-map-canvas';
 import { VillagerFocusCard } from '@/components/town/villager-focus-card';
+import { WOOD_THEME } from '@/components/town/wood-theme';
 import {
   adjustPouchItem,
   applyCraftRecipe,
   CRAFT_RECIPES,
   CROP_DEFINITIONS,
-  type CropKind,
   getCropGrowthProgress,
   getEconomyItem,
   getPouchQty,
@@ -35,27 +35,27 @@ import type {
 } from '@/game/raid-engine';
 import {
   computeSeasonalClockState,
-  deleteLandPatch,
   deleteValleyCrop,
-  deleteValleyCropsInBlock,
+  deleteValleyCropAtTile,
+  deleteValleyTile,
   deleteValleyTree,
-  deleteValleyTreesInBlock,
   loadFounderCoins,
-  loadLandPatches,
   loadOrInitSeasonEpochMs,
   loadPouchEntries,
   loadTownGovernance,
   loadValleyBuildings,
   loadValleyCrops,
+  loadValleyTiles,
   loadValleyTrees,
   saveFounderCoins,
   savePouchEntries,
   saveTownGovernance,
-  type StoredLandPatch,
-  upsertLandPatch,
+  type StoredValleyTile,
   upsertValleyBuilding,
   upsertValleyCrop,
+  upsertValleyTile,
   upsertValleyTree,
+  WINTER_SOIL_REFREEZE_MS,
 } from '@/game/town-db';
 import {
   type ArmyUnitKey,
@@ -70,13 +70,27 @@ import {
   type WarbandSlot,
   type WinterPolicy,
 } from '@/game/town-governance';
-import { TOWN_STREET_NODES, TOWN_VILLAGERS } from '@/game/town-villagers';
 import {
-  BLOCK_GRID_SIZE,
+  type StreetNodeId,
+  TOWN_STREET_NODES,
+  TOWN_VILLAGERS,
+} from '@/game/town-villagers';
+import {
+  AnvilMultiplexedSyncClient,
+  clientIconToBackendItem,
+  fetchVillagerPersonaFromBackend,
+  generateLiveAiPersonaOnBackend,
+  type LiveVillagerOverlay,
+  loadLastTownSeq,
+  loadOutboxQueue,
+  loadStoredAccountMeta,
+} from '@/lib/anvil-live-sync';
+import {
   canPlaceBuildingOnBlock,
   computeNextValleyTreeWakeupMs,
+  getBuildingTileBounds,
   getTreeGrowthProgress,
-  isBlockBlockedForSoil,
+  isTileBlockedForLandEdit,
   type StoredValleyBuilding,
   VALLEY_TREE_GROW_MS,
   type ValleyPlantedTree,
@@ -103,6 +117,7 @@ function triggerMediumHaptic(): void {
 function computeNextWorldWakeupMs(
   trees: readonly ValleyPlantedTree[],
   crops: readonly ValleyPlantedCrop[],
+  tiles: readonly StoredValleyTile[],
   cooldowns: readonly NodeCooldownEntry[],
   nowMs: number
 ): number | null {
@@ -122,6 +137,24 @@ function computeNextWorldWakeupMs(
       if (stageMs > nowMs && (nextMs === null || stageMs < nextMs)) {
         nextMs = stageMs;
       }
+    }
+  }
+
+  for (let i = 0; i < tiles.length; i += 1) {
+    const tile = tiles[i];
+
+    if (tile.kind !== 'FARM_SOIL' || tile.refreezeAtMs === null) {
+      continue;
+    }
+
+    const warnAt = tile.refreezeAtMs - 25_000;
+
+    if (warnAt > nowMs && (nextMs === null || warnAt < nextMs)) {
+      nextMs = warnAt;
+    }
+
+    if (tile.refreezeAtMs > nowMs && (nextMs === null || tile.refreezeAtMs < nextMs)) {
+      nextMs = tile.refreezeAtMs;
     }
   }
 
@@ -155,8 +188,8 @@ export function TownWorldScreen() {
   const [editingBuilding, setEditingBuilding] =
     useState<StoredValleyBuilding | null>(null);
 
-  const [placedPatches, setPlacedPatches] = useState<StoredLandPatch[]>(() =>
-    loadLandPatches()
+  const [valleyTiles, setValleyTiles] = useState<StoredValleyTile[]>(() =>
+    loadValleyTiles(buildings)
   );
 
   const [plantedTrees, setPlantedTrees] = useState<ValleyPlantedTree[]>(() =>
@@ -167,7 +200,7 @@ export function TownWorldScreen() {
     loadValleyCrops()
   );
 
-  const [selectedSeed, setSelectedSeed] = useState<CropKind | 'pine'>('turnip');
+  const [heldTool, setHeldTool] = useState<HeldTool>({ kind: 'HAND' });
   const [nodeCooldowns, setNodeCooldowns] = useState<NodeCooldownEntry[]>([]);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
 
@@ -186,6 +219,39 @@ export function TownWorldScreen() {
 
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [liveConnected, setLiveConnected] = useState<boolean>(false);
+
+  const [activeTownId, setActiveTownId] = useState<string>(
+    () => loadStoredAccountMeta().visitingTownId
+  );
+
+  const [lastSeq, setLastSeq] = useState<number>(() =>
+    loadLastTownSeq(loadStoredAccountMeta().visitingTownId)
+  );
+
+  const [outboxCount, setOutboxCount] = useState<number>(
+    () => loadOutboxQueue().length
+  );
+
+  const [focusedOverlay, setFocusedOverlay] = useState<
+    LiveVillagerOverlay | undefined
+  >(undefined);
+
+  const [isGeneratingPersona, setIsGeneratingPersona] =
+    useState<boolean>(false);
+
+  const liveIntentBridgeRef = useRef<
+    | ((
+        villagerIndex: number,
+        targetNodeId: StreetNodeId,
+        isIndoors: boolean,
+        durationMs: number
+      ) => void)
+    | null
+  >(null);
+
+  const syncClientRef = useRef<AnvilMultiplexedSyncClient | null>(null);
 
   const seasonalClock = computeSeasonalClockState(seasonEpochMs, nowMs);
   const season = seasonalClock.season;
@@ -211,6 +277,69 @@ export function TownWorldScreen() {
     };
   }, []);
 
+  // Multiplexed Zero-Rerender Native WebSocket + MMKV Outbox Sync Client
+  useEffect(() => {
+    const initialCoins = loadFounderCoins();
+
+    const client = new AnvilMultiplexedSyncClient({
+      onDirectCanvasIntent: (villagerIndex, targetNode, isIndoors, durationMs) => {
+        liveIntentBridgeRef.current?.(
+          villagerIndex,
+          targetNode,
+          isIndoors,
+          durationMs
+        );
+      },
+      onConnectionChange: (connected, townId, seq, queued) => {
+        setLiveConnected(connected);
+        setActiveTownId(townId);
+        setLastSeq(seq);
+        setOutboxCount(queued);
+      },
+      onSaleSettled: (itemName, qty, netCoinsEarnedFc, buyerName) => {
+        setCoins((prev) => {
+          const updated = prev + netCoinsEarnedFc;
+
+          saveFounderCoins(updated);
+
+          return updated;
+        });
+        triggerMediumHaptic();
+        showToast(
+          `💰 ${buyerName} bought ${qty}× ${itemName} (+${netCoinsEarnedFc} FC)!`
+        );
+      },
+      onTownTreasurySync: (treasuryFc, taxRatePct) => {
+        setGovernance((prev) => {
+          if (
+            prev.townTreasuryFc === treasuryFc &&
+            prev.taxRatePct === taxRatePct
+          ) {
+            return prev;
+          }
+
+          const next = {
+            ...prev,
+            townTreasuryFc: treasuryFc,
+            taxRatePct,
+          };
+
+          saveTownGovernance(next);
+
+          return next;
+        });
+      },
+    });
+
+    syncClientRef.current = client;
+    void client.start(initialCoins);
+
+    return () => {
+      client.stop();
+      syncClientRef.current = null;
+    };
+  }, []);
+
   // Refresh the 72-hour seasonal countdown once per minute (zero 60fps overhead)
   useEffect(() => {
     const interval = setInterval(() => {
@@ -222,11 +351,12 @@ export function TownWorldScreen() {
     };
   }, []);
 
-  // Zero-polling exact wakeup timer for trees, crops, and resource node respawns
+  // Zero-polling exact wakeup timer for trees, crops, Winter soil refreeze & node respawns
   useEffect(() => {
     const nextWakeupMs = computeNextWorldWakeupMs(
       plantedTrees,
       plantedCrops,
+      valleyTiles,
       nodeCooldowns,
       nowMs
     );
@@ -239,6 +369,30 @@ export function TownWorldScreen() {
 
     const timer = setTimeout(() => {
       const freshNow = Date.now();
+      const expiredKeys = new Set<string>();
+
+      for (let i = 0; i < valleyTiles.length; i += 1) {
+        const tile = valleyTiles[i];
+
+        if (
+          tile.kind === 'FARM_SOIL' &&
+          tile.refreezeAtMs !== null &&
+          tile.refreezeAtMs <= freshNow
+        ) {
+          deleteValleyTile(tile.tileX, tile.tileY);
+          deleteValleyCropAtTile(tile.tileX, tile.tileY);
+          expiredKeys.add(`${tile.tileX}_${tile.tileY}`);
+        }
+      }
+
+      if (expiredKeys.size > 0) {
+        setValleyTiles((prev) =>
+          prev.filter((t) => !expiredKeys.has(`${t.tileX}_${t.tileY}`))
+        );
+        setPlantedCrops((prev) =>
+          prev.filter((c) => !expiredKeys.has(`${c.tileX}_${c.tileY}`))
+        );
+      }
 
       setNowMs(freshNow);
       setNodeCooldowns((prev) => prev.filter((c) => c.readyAtMs > freshNow));
@@ -247,7 +401,7 @@ export function TownWorldScreen() {
     return () => {
       clearTimeout(timer);
     };
-  }, [plantedTrees, plantedCrops, nodeCooldowns, nowMs]);
+  }, [plantedTrees, plantedCrops, valleyTiles, nodeCooldowns, nowMs]);
 
   const commitCoins = (nextCoins: number): void => {
     const safe = Math.max(0, Math.round(nextCoins));
@@ -291,6 +445,18 @@ export function TownWorldScreen() {
 
     if (outcome.bonusCoins > 0) {
       commitCoins(coins + outcome.bonusCoins);
+    }
+
+    const backendItem = clientIconToBackendItem(outcome.itemId);
+
+    if (backendItem !== null) {
+      syncClientRef.current?.dispatchOptimisticCommand({
+        cmdId: `harv_${nodeId}_${currentNow}`,
+        kind: 'HARVEST_GAIN',
+        itemId: backendItem,
+        qtyDelta: outcome.qty,
+        coinsDelta: outcome.bonusCoins,
+      });
     }
 
     setNodeCooldowns((prev) => {
@@ -342,6 +508,18 @@ export function TownWorldScreen() {
 
     commitPouch(nextPouch);
     commitCoins(coins + spec.npcSellPrice);
+    const backendSellId = clientIconToBackendItem(itemId);
+
+    if (backendSellId !== null) {
+      syncClientRef.current?.dispatchOptimisticCommand({
+        cmdId: `sell_${itemId}_${Date.now()}`,
+        kind: 'LOCAL_SELL',
+        itemId: backendSellId,
+        qtyDelta: -1,
+        coinsDelta: spec.npcSellPrice,
+      });
+    }
+
     triggerLightHaptic();
     showToast(`Sold ${spec.name} (+${spec.npcSellPrice} FC)`);
   };
@@ -357,6 +535,18 @@ export function TownWorldScreen() {
 
     commitCoins(coins - spec.npcBuyPrice);
     commitPouch(adjustPouchItem(pouchEntries, seedItemId, 1));
+    const backendSeedId = clientIconToBackendItem(seedItemId);
+
+    if (backendSeedId !== null) {
+      syncClientRef.current?.dispatchOptimisticCommand({
+        cmdId: `buy_${seedItemId}_${Date.now()}`,
+        kind: 'LOCAL_BUY',
+        itemId: backendSeedId,
+        qtyDelta: 1,
+        coinsDelta: -spec.npcBuyPrice,
+      });
+    }
+
     triggerLightHaptic();
     showToast(`Bought +1 ${spec.name}`);
   };
@@ -370,25 +560,64 @@ export function TownWorldScreen() {
   };
 
   /**
-   * Direct contextual interaction on any playable 4x4 block:
-   * 1. Tap a Mature/Withered Crop -> harvest into Pouch (or clear frost-damaged crop).
-   * 2. Tap a Mature Pine Tree -> chop for +2 Pine Logs.
-   * 3. Tap uncleared snow/grass -> clear into organic Loamy Soil.
-   * 4. Tap cleared Loamy Soil -> plant currently equipped Seed (Snow Turnip, Pine, Maize, etc.).
+   * Tool-driven 1x1 tile interaction (no accidental digging in Hand mode!):
+   * - BROOM: clears any 1x1 soil, path, or crop back to natural snow/grass.
+   * - HOE: tills 1x1 Farm Soil (refreezes back to snow in Dead Winter after 90s).
+   * - SHOVEL: lays permanent 1x1 Village Path (never refreezes; speeds up villagers).
+   * - SEED: plants the held Seed onto tilled Farm Soil (or Pine Sapling on open ground).
+   * - HAND (default): safely harvests mature crops / chops mature trees without modifying land.
    */
   const handleTileTap = (
-    blockX: number,
-    blockY: number,
+    _blockX: number,
+    _blockY: number,
     tileX: number,
     tileY: number
   ): void => {
     const currentNow = Date.now();
 
-    // 1. Check planted crop on this tile
     const existingCrop = plantedCrops.find(
       (c) => c.tileX === tileX && c.tileY === tileY
     );
 
+    const existingTree = plantedTrees.find(
+      (t) => t.tileX === tileX && t.tileY === tileY
+    );
+
+    const existingTile = valleyTiles.find(
+      (t) => t.tileX === tileX && t.tileY === tileY
+    );
+
+    // 1. BROOM: cleanly clear any 1x1 tile, path, or crop back to natural snow/grass
+    if (heldTool.kind === 'BROOM') {
+      if (existingCrop !== undefined) {
+        deleteValleyCrop(existingCrop.id);
+        setPlantedCrops((prev) => prev.filter((c) => c.id !== existingCrop.id));
+      }
+
+      if (existingTile !== undefined) {
+        deleteValleyTile(tileX, tileY);
+        setValleyTiles((prev) =>
+          prev.filter((t) => t.tileX !== tileX || t.tileY !== tileY)
+        );
+        triggerLightHaptic();
+        showToast(
+          existingTile.kind === 'PATH'
+            ? 'Removed Path square'
+            : 'Cleared Farm Soil back to snow'
+        );
+
+        return;
+      }
+
+      if (existingCrop !== undefined) {
+        triggerLightHaptic();
+        showToast('Cleared crop square');
+      }
+
+      return;
+    }
+
+    // 2. Always allow harvesting mature/withered crops & mature trees when tapped
     if (existingCrop !== undefined) {
       const def = CROP_DEFINITIONS[existingCrop.cropKind];
 
@@ -419,11 +648,6 @@ export function TownWorldScreen() {
       return;
     }
 
-    // 2. Check planted pine tree on this tile
-    const existingTree = plantedTrees.find(
-      (t) => t.tileX === tileX && t.tileY === tileY
-    );
-
     if (existingTree !== undefined) {
       const progress = getTreeGrowthProgress(existingTree, currentNow);
 
@@ -439,46 +663,85 @@ export function TownWorldScreen() {
       return;
     }
 
-    if (isBlockBlockedForSoil(blockX, blockY, buildings)) {
+    // 3. Default HAND mode: never accidentally digs or alters empty snow/grass
+    if (heldTool.kind === 'HAND') {
       return;
     }
 
-    const isSoilCleared = placedPatches.some(
-      (p) => p.blockX === blockX && p.blockY === blockY && p.kind === 'PLANTING'
-    );
+    if (isTileBlockedForLandEdit(tileX, tileY, buildings)) {
+      showToast('Space is occupied by a building, lake, or plaza well');
 
-    // 3. Clear snow/grass into organic Loamy Soil
-    if (!isSoilCleared) {
-      const newPatch: StoredLandPatch = {
-        blockX,
-        blockY,
-        kind: 'PLANTING',
+      return;
+    }
+
+    // 4. HOE: till 1x1 Farm Soil (Winter soil refreezes back to snow after 90s!)
+    if (heldTool.kind === 'HOE') {
+      const nextTile: StoredValleyTile = {
+        tileX,
+        tileY,
+        kind: 'FARM_SOIL',
+        createdAtMs: currentNow,
+        refreezeAtMs:
+          season === 'WINTER' ? currentNow + WINTER_SOIL_REFREEZE_MS : null,
       };
 
-      upsertLandPatch(newPatch);
-      setPlacedPatches((prev) => {
-        const next: StoredLandPatch[] = [];
+      upsertValleyTile(nextTile);
+      setValleyTiles((prev) => {
+        const next: StoredValleyTile[] = [];
 
         for (let i = 0; i < prev.length; i += 1) {
-          const item = prev[i];
-
-          if (item.blockX !== blockX || item.blockY !== blockY) {
-            next.push(item);
+          if (prev[i].tileX !== tileX || prev[i].tileY !== tileY) {
+            next.push(prev[i]);
           }
         }
 
-        next.push(newPatch);
+        next.push(nextTile);
+
+        return next;
+      });
+      setNowMs(currentNow);
+      triggerMediumHaptic();
+      showToast(
+        season === 'WINTER'
+          ? 'Tilled Farm Soil (snow reclaims it in 90s!)'
+          : 'Tilled Farm Soil square'
+      );
+
+      return;
+    }
+
+    // 5. SHOVEL: lay permanent 1x1 Village Path (never refreezes in Winter!)
+    if (heldTool.kind === 'SHOVEL') {
+      const nextTile: StoredValleyTile = {
+        tileX,
+        tileY,
+        kind: 'PATH',
+        createdAtMs: currentNow,
+        refreezeAtMs: null,
+      };
+
+      upsertValleyTile(nextTile);
+      setValleyTiles((prev) => {
+        const next: StoredValleyTile[] = [];
+
+        for (let i = 0; i < prev.length; i += 1) {
+          if (prev[i].tileX !== tileX || prev[i].tileY !== tileY) {
+            next.push(prev[i]);
+          }
+        }
+
+        next.push(nextTile);
 
         return next;
       });
       triggerMediumHaptic();
-      showToast('Cleared Loamy Soil (tap again to plant)');
+      showToast('Laid Permanent Village Path (+35% citizen speed)');
 
       return;
     }
 
-    // 4. Plant equipped seed onto cleared Loamy Soil
-    if (selectedSeed === 'pine') {
+    // 6. SEED: plant the currently held Seed!
+    if (heldTool.seed === 'pine') {
       const coneQty = getPouchQty(pouchEntries, 'seedPinecone');
 
       if (coneQty > 0) {
@@ -502,7 +765,19 @@ export function TownWorldScreen() {
       return;
     }
 
-    const cropDef = CROP_DEFINITIONS[selectedSeed];
+    const isTilledSoil =
+      existingTile !== undefined &&
+      existingTile.kind === 'FARM_SOIL' &&
+      (existingTile.refreezeAtMs === null ||
+        existingTile.refreezeAtMs > currentNow);
+
+    if (!isTilledSoil) {
+      showToast('Equip the Hoe first to till a 1×1 Farm Soil square!');
+
+      return;
+    }
+
+    const cropDef = CROP_DEFINITIONS[heldTool.seed];
     const seedQty = getPouchQty(pouchEntries, cropDef.seedItemId);
 
     if (seedQty <= 0) {
@@ -515,7 +790,7 @@ export function TownWorldScreen() {
       id: `vcrop_${tileX}_${tileY}`,
       tileX,
       tileY,
-      cropKind: selectedSeed,
+      cropKind: heldTool.seed,
       plantedAtMs: currentNow,
       matureAtMs: currentNow + cropDef.growDurationMs,
     };
@@ -527,7 +802,7 @@ export function TownWorldScreen() {
     triggerLightHaptic();
 
     if (season === 'WINTER' && !cropDef.winterHardy) {
-      showToast(`Warning: ${cropDef.name} withers in Dead Winter!`);
+      showToast(`Warning: ${cropDef.name} freezes in Dead Winter!`);
     } else {
       showToast(`Planted ${cropDef.name}`);
     }
@@ -535,7 +810,6 @@ export function TownWorldScreen() {
 
   /**
    * Long-press any building to enter Move & Rotate mode.
-   * Long-press a cleared 4x4 soil block (with no building) to restore it back to snow/grass.
    */
   const handleBlockLongPress = (blockX: number, blockY: number): void => {
     const tappedBuilding = buildings.find(
@@ -546,49 +820,7 @@ export function TownWorldScreen() {
       setFocusedVillagerIndex(null);
       setEditingBuilding({ ...tappedBuilding });
       triggerMediumHaptic();
-
-      return;
     }
-
-    const exists = placedPatches.some(
-      (p) => p.blockX === blockX && p.blockY === blockY
-    );
-
-    if (!exists) {
-      return;
-    }
-
-    const minTx = blockX * BLOCK_GRID_SIZE;
-    const maxTx = minTx + BLOCK_GRID_SIZE - 1;
-    const minTy = blockY * BLOCK_GRID_SIZE;
-    const maxTy = minTy + BLOCK_GRID_SIZE - 1;
-
-    deleteLandPatch(blockX, blockY);
-    deleteValleyTreesInBlock(blockX, blockY);
-    deleteValleyCropsInBlock(blockX, blockY);
-
-    setPlacedPatches((prev) =>
-      prev.filter((p) => p.blockX !== blockX || p.blockY !== blockY)
-    );
-    setPlantedTrees((prev) =>
-      prev.filter(
-        (t) =>
-          t.tileX < minTx ||
-          t.tileX > maxTx ||
-          t.tileY < minTy ||
-          t.tileY > maxTy
-      )
-    );
-    setPlantedCrops((prev) =>
-      prev.filter(
-        (c) =>
-          c.tileX < minTx ||
-          c.tileX > maxTx ||
-          c.tileY < minTy ||
-          c.tileY > maxTy
-      )
-    );
-    triggerLightHaptic();
   };
 
   const handleMoveEditingBuilding = (blockX: number, blockY: number): void => {
@@ -632,8 +864,35 @@ export function TownWorldScreen() {
     }
 
     const committed = editingBuilding;
+    const bounds = getBuildingTileBounds(committed);
 
     upsertValleyBuilding(committed);
+
+    for (let ty = bounds.minTy; ty <= bounds.maxTy; ty += 1) {
+      for (let tx = bounds.minTx; tx <= bounds.maxTx; tx += 1) {
+        deleteValleyTile(tx, ty);
+        deleteValleyCropAtTile(tx, ty);
+      }
+    }
+
+    setValleyTiles((prev) =>
+      prev.filter(
+        (t) =>
+          t.tileX < bounds.minTx ||
+          t.tileX > bounds.maxTx ||
+          t.tileY < bounds.minTy ||
+          t.tileY > bounds.maxTy
+      )
+    );
+    setPlantedCrops((prev) =>
+      prev.filter(
+        (c) =>
+          c.tileX < bounds.minTx ||
+          c.tileX > bounds.maxTx ||
+          c.tileY < bounds.minTy ||
+          c.tileY > bounds.maxTy
+      )
+    );
     setBuildings((prev) => {
       const next: StoredValleyBuilding[] = [];
 
@@ -660,7 +919,70 @@ export function TownWorldScreen() {
     if (villagerIndex !== null) {
       setEditingBuilding(null);
       triggerLightHaptic();
+
+      const existingOverlay =
+        syncClientRef.current?.getVillagerOverlay(villagerIndex);
+
+      setFocusedOverlay(existingOverlay);
+
+      const townPrefix = syncClientRef.current?.currentTownId ?? activeTownId;
+
+      const backendNpcId =
+        existingOverlay?.backendNpcId ??
+        `${townPrefix}_npc_${villagerIndex + 1}`;
+
+      if (existingOverlay?.persona === null || existingOverlay === undefined) {
+        void fetchVillagerPersonaFromBackend(backendNpcId).then((persona) => {
+          if (persona !== null && syncClientRef.current !== null) {
+            syncClientRef.current.setVillagerPersona(villagerIndex, persona);
+            setFocusedOverlay(
+              syncClientRef.current.getVillagerOverlay(villagerIndex)
+            );
+          }
+        });
+      }
+    } else {
+      setFocusedOverlay(undefined);
     }
+  };
+
+  const handleGenerateFocusedAiPersona = (): void => {
+    if (focusedVillagerIndex === null || isGeneratingPersona) {
+      return;
+    }
+
+    const idx = focusedVillagerIndex;
+    const townPrefix = syncClientRef.current?.currentTownId ?? activeTownId;
+
+    const backendNpcId =
+      focusedOverlay?.backendNpcId ?? `${townPrefix}_npc_${idx + 1}`;
+
+    setIsGeneratingPersona(true);
+    void generateLiveAiPersonaOnBackend(backendNpcId)
+      .then((persona) => {
+        if (persona !== null && syncClientRef.current !== null) {
+          syncClientRef.current.setVillagerPersona(idx, persona);
+          setFocusedOverlay(syncClientRef.current.getVillagerOverlay(idx));
+          triggerMediumHaptic();
+          showToast(`✨ Synthesized AI Persona v${persona.version}!`);
+        } else {
+          showToast('Backend offline — using local valley persona');
+        }
+      })
+      .finally(() => {
+        setIsGeneratingPersona(false);
+      });
+  };
+
+  const handleSwitchVisitedTown = (nextTownId: string): void => {
+    syncClientRef.current?.switchTown(nextTownId);
+    setActiveTownId(nextTownId);
+    triggerMediumHaptic();
+    showToast(
+      nextTownId === loadStoredAccountMeta().homeTownId
+        ? 'Returned to Home Valley'
+        : `🧭 Visited ${nextTownId} (1-frame hop)`
+    );
   };
 
   const handleChangeTaxRate = (delta: number): void => {
@@ -858,11 +1180,12 @@ export function TownWorldScreen() {
         buildings={buildings}
         editingBuilding={editingBuilding}
         isEditPlacementValid={isEditPlacementValid}
-        placedPatches={placedPatches}
+        valleyTiles={valleyTiles}
         plantedTrees={plantedTrees}
         plantedCrops={plantedCrops}
         nodeCooldowns={nodeCooldowns}
         focusedVillagerIndex={focusedVillagerIndex}
+        liveIntentBridgeRef={liveIntentBridgeRef}
         onSelectVillager={handleSelectVillager}
         onMoveEditingBuilding={handleMoveEditingBuilding}
         onHarvestWorldNode={handleHarvestWorldNode}
@@ -872,6 +1195,21 @@ export function TownWorldScreen() {
         onTileTap={handleTileTap}
         onBlockLongPress={handleBlockLongPress}
       />
+
+      {activeTownId !== loadStoredAccountMeta().homeTownId && (
+        <View style={styles.visitingBannerWrap} pointerEvents="box-none">
+          <Pressable
+            onPress={() => {
+              handleSwitchVisitedTown(loadStoredAccountMeta().homeTownId);
+            }}
+            style={styles.visitingPill}
+          >
+            <Text style={styles.visitingPillText}>
+              🧭 Visiting {activeTownId} · Tap to Return Home
+            </Text>
+          </Pressable>
+        </View>
+      )}
 
       {toastMessage !== null && (
         <View pointerEvents="none" style={styles.toastWrap}>
@@ -886,7 +1224,7 @@ export function TownWorldScreen() {
         coins={coins}
         pouchEntries={pouchEntries}
         governance={governance}
-        selectedSeed={selectedSeed}
+        heldTool={heldTool}
         citizenCount={TOWN_VILLAGERS.length}
         buildingCount={buildings.length}
         visible={
@@ -895,7 +1233,7 @@ export function TownWorldScreen() {
           !townHallOpen &&
           activeRaidTown === null
         }
-        onSelectSeed={setSelectedSeed}
+        onSelectHeldTool={setHeldTool}
         onCraftRecipe={handleCraftRecipe}
         onSellItem={handleSellItem}
         onBuySeed={handleBuySeed}
@@ -916,8 +1254,12 @@ export function TownWorldScreen() {
         <VillagerFocusCard
           villager={focusedVillager}
           currentLocationLabel={focusedLocationLabel}
+          liveOverlay={focusedOverlay}
+          isGeneratingPersona={isGeneratingPersona}
+          onGenerateAiPersona={handleGenerateFocusedAiPersona}
           onClose={() => {
             setFocusedVillagerIndex(null);
+            setFocusedOverlay(undefined);
           }}
         />
       )}
@@ -932,6 +1274,10 @@ export function TownWorldScreen() {
           governance={governance}
           lastElection={lastElection}
           initialTab={townHallTab}
+          liveConnected={liveConnected}
+          activeTownId={activeTownId}
+          lastSeq={lastSeq}
+          outboxCount={outboxCount}
           onClose={() => {
             setTownHallOpen(false);
           }}
@@ -941,6 +1287,23 @@ export function TownWorldScreen() {
           onDonateRelief={handleDonateRelief}
           onTrainUnit={handleTrainUnit}
           onLaunchRaid={handleLaunchRaid}
+          onSwitchVisitedTown={handleSwitchVisitedTown}
+          onEscrowListed={(itemId, qty) => {
+            commitPouch(adjustPouchItem(pouchEntries, itemId, -qty));
+            triggerMediumHaptic();
+            showToast(`Listed ${qty}× to Inter-Town Escrow!`);
+          }}
+          onEscrowCancelledRefund={(itemId, qty) => {
+            commitPouch(adjustPouchItem(pouchEntries, itemId, qty));
+            triggerLightHaptic();
+            showToast(`Escrow cancelled — refunded +${qty}× to Pouch`);
+          }}
+          onEscrowPurchased={(itemId, qty, totalCostFc) => {
+            commitCoins(coins - totalCostFc);
+            commitPouch(adjustPouchItem(pouchEntries, itemId, qty));
+            triggerMediumHaptic();
+            showToast(`Bought +${qty}× from Inter-Town Market!`);
+          }}
         />
       )}
 
@@ -979,21 +1342,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   toastPill: {
-    backgroundColor: 'rgba(10, 14, 24, 0.88)',
-    borderWidth: 1.5,
-    borderColor: '#40A7FC',
+    backgroundColor: WOOD_THEME.toastBg,
+    borderWidth: 2.5,
+    borderColor: WOOD_THEME.toastBorder,
     borderRadius: 999,
     paddingHorizontal: 16,
     paddingVertical: 8,
-    shadowColor: '#000000',
-    shadowOpacity: 0.3,
+    shadowColor: '#2E1A0B',
+    shadowOpacity: 0.28,
     shadowRadius: 8,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 5,
+    elevation: 6,
   },
   toastText: {
-    color: '#FFFFFF',
+    color: WOOD_THEME.inkPrimary,
     fontSize: 12.5,
-    fontWeight: '700',
+    fontWeight: '800',
+  },
+  visitingBannerWrap: {
+    position: 'absolute',
+    top: 46,
+    left: 14,
+  },
+  visitingPill: {
+    backgroundColor: WOOD_THEME.sheetBg,
+    borderWidth: 2,
+    borderColor: WOOD_THEME.sheetBorder,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    paddingVertical: 7,
+    elevation: 5,
+  },
+  visitingPillText: {
+    color: WOOD_THEME.inkHeading,
+    fontSize: 11.5,
+    fontWeight: '800',
   },
 });

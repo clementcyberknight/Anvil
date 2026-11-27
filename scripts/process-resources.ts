@@ -234,6 +234,29 @@ const ICON_SHEETS: readonly GridSliceSheetSpec[] = [
       'raidAxesShield',
     ],
   },
+  {
+    filename: 'Icons Missing Tools Sheet.jfif',
+    cols: 4,
+    rows: 4,
+    keys: [
+      'ironShovel',
+      'builderHammer',
+      'clearBroom',
+      'yetiHand',
+      'forageBasket',
+      'milkPail',
+      'woolShears',
+      'beeSmoker',
+      'waterBucket',
+      'iceSaw',
+      'fishingNet',
+      'herbTrowel',
+      'forgeTongs',
+      'bakingPeel',
+      'mortarPestle',
+      'toolRepairKit',
+    ],
+  },
 ];
 
 function isExteriorWhiteOrTransparent(
