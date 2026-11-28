@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { StyleSheet, useColorScheme } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
+import { useTownSetupStatus } from '@/game/town-db';
 import { useOnboardingStatus } from '@/lib/storage';
 
 SplashScreen.preventAutoHideAsync();
@@ -17,6 +18,7 @@ SplashScreen.setOptions({
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const { hasCompletedOnboarding } = useOnboardingStatus();
+  const { hasStartedTown } = useTownSetupStatus();
 
   useEffect(() => {
     SplashScreen.hide();
@@ -38,7 +40,14 @@ export default function RootLayout() {
             />
           </Stack.Protected>
 
-          <Stack.Protected guard={hasCompletedOnboarding}>
+          <Stack.Protected guard={hasCompletedOnboarding && !hasStartedTown}>
+            <Stack.Screen
+              name="start-town"
+              options={{ animation: 'fade' }}
+            />
+          </Stack.Protected>
+
+          <Stack.Protected guard={hasCompletedOnboarding && hasStartedTown}>
             <Stack.Screen name="index" options={{ animation: 'fade' }} />
           </Stack.Protected>
         </Stack>

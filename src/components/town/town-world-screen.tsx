@@ -1,9 +1,10 @@
 import * as Haptics from 'expo-haptics';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { BuildingEditBar } from '@/components/town/building-edit-bar';
 import { type HeldTool, HeroPouchHud } from '@/components/town/hero-pouch-hud';
+import { IncomingNpcBanner } from '@/components/town/incoming-npc-banner';
 import { RivalRaidScreen } from '@/components/town/rival-raid-screen';
 import {
   TownHallModal,
@@ -13,9 +14,23 @@ import {
   type NodeCooldownEntry,
   TownMapCanvas,
 } from '@/components/town/town-map-canvas';
+import { ValleyBankModal } from '@/components/town/valley-bank-modal';
+import {
+  type ChatEconomicDelta,
+  VillagerChatModal,
+} from '@/components/town/villager-chat-modal';
 import { VillagerFocusCard } from '@/components/town/villager-focus-card';
 import { WalletSettingsModal } from '@/components/town/wallet-settings-modal';
 import { WOOD_THEME } from '@/components/town/wood-theme';
+import {
+  adjustVillagerWalletCoins,
+  hydratePlayerCreditLedgerFromBackend,
+  hydrateSingleVillagerCreditFromIntent,
+  hydrateVillagerCreditsFromBackend,
+  loadVillagerWalletCoins,
+  recordPlayerEarning,
+  recordPlayerSpending,
+} from '@/game/credit-bank';
 import {
   adjustPouchItem,
   applyCraftRecipe,
@@ -60,42 +75,49 @@ import {
 } from '@/game/town-db';
 import {
   type ArmyUnitKey,
+  canHoldSummerElection,
   computeProjectedApproval,
   type ElectionBallotResult,
   getArmyUnitSpec,
   getRaidCommandRules,
   getTotalWarbandCount,
   getUnitTrainingCoinCost,
+  resolveVillagerForOfficeHolder,
   runTownElection,
   type TownGovernanceState,
   type WarbandSlot,
   type WinterPolicy,
 } from '@/game/town-governance';
 import {
+  buildResidentialTownVillagers,
   type StreetNodeId,
   TOWN_STREET_NODES,
   TOWN_VILLAGERS,
+  type VillagerInventoryItem,
 } from '@/game/town-villagers';
 import {
   AnvilMultiplexedSyncClient,
   clientIconToBackendItem,
-  fetchVillagerPersonaFromBackend,
-  generateLiveAiPersonaOnBackend,
+  type IncomingNpcApproachPayload,
   type LiveVillagerOverlay,
   loadLastTownSeq,
   loadOutboxQueue,
   loadStoredAccountMeta,
 } from '@/lib/anvil-live-sync';
-import {
-  ensureLocalSuiWallet,
-  loadCachedSuiWalletSummarySync,
-} from '@/lib/sui-wallet';
+import { ensureLocalSuiWallet } from '@/lib/sui-wallet';
 import {
   canPlaceBuildingOnBlock,
   computeNextValleyTreeWakeupMs,
+  computeTownPopulationCap,
+  countResidentialBuildings,
+  findOpenResidentialBlock,
+  getBuildingDoorTile,
   getBuildingTileBounds,
   getTreeGrowthProgress,
   isTileBlockedForLandEdit,
+  RESIDENTIAL_COTTAGE_COST_FC,
+  RESIDENTS_PER_RESIDENTIAL_BUILDING,
+  STARTER_RESIDENTIAL_BUILDINGS,
   type StoredValleyBuilding,
   VALLEY_TREE_GROW_MS,
   type ValleyPlantedTree,
@@ -243,14 +265,26 @@ export function TownWorldScreen() {
     LiveVillagerOverlay | undefined
   >(undefined);
 
-  const [isGeneratingPersona, setIsGeneratingPersona] =
-    useState<boolean>(false);
-
   const [walletSettingsOpen, setWalletSettingsOpen] = useState<boolean>(false);
+  const [bankOpen, setBankOpen] = useState<boolean>(false);
 
-  const [walletShortAddress, setWalletShortAddress] = useState<string | null>(
-    () => loadCachedSuiWalletSummarySync()?.shortAddress ?? null
+  const [chatVillagerIndex, setChatVillagerIndex] = useState<number | null>(
+    null
   );
+
+  const [chatInitialMessage, setChatInitialMessage] = useState<
+    string | undefined
+  >(undefined);
+
+  const [incomingNpcApproach, setIncomingNpcApproach] =
+    useState<IncomingNpcApproachPayload | null>(null);
+
+  const [villagerInventories, setVillagerInventories] = useState<
+    ReadonlyMap<string, readonly VillagerInventoryItem[]>
+  >(() => new Map());
+
+  const [villagerWalletTick, setVillagerWalletTick] = useState<number>(0);
+  const [remoteBankError, setRemoteBankError] = useState<string | null>(null);
 
   const liveIntentBridgeRef = useRef<
     | ((
@@ -266,6 +300,38 @@ export function TownWorldScreen() {
 
   const seasonalClock = computeSeasonalClockState(seasonEpochMs, nowMs);
   const season = seasonalClock.season;
+
+  const residentialCount = countResidentialBuildings(buildings);
+
+  const populationCap = computeTownPopulationCap(
+    buildings,
+    TOWN_VILLAGERS.length
+  );
+
+  const activeVillagers = useMemo(
+    () =>
+      buildResidentialTownVillagers(
+        residentialCount,
+        STARTER_RESIDENTIAL_BUILDINGS,
+        RESIDENTS_PER_RESIDENTIAL_BUILDING,
+        (v) => resolveVillagerForOfficeHolder(v, governance.officeHolder)
+      ),
+    [residentialCount, governance.officeHolder]
+  );
+
+  const activeVillagersRef = useRef(activeVillagers);
+  const focusedVillagerIndexRef = useRef<number | null>(focusedVillagerIndex);
+  const bankOpenRef = useRef<boolean>(bankOpen);
+
+  const incomingApproachTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  useEffect(() => {
+    activeVillagersRef.current = activeVillagers;
+    focusedVillagerIndexRef.current = focusedVillagerIndex;
+    bankOpenRef.current = bankOpen;
+  }, [activeVillagers, focusedVillagerIndex, bankOpen]);
 
   const showToast = (msg: string): void => {
     setToastMessage(msg);
@@ -289,17 +355,7 @@ export function TownWorldScreen() {
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-
-    void ensureLocalSuiWallet().then((summary) => {
-      if (!cancelled) {
-        setWalletShortAddress(summary.shortAddress);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
+    void ensureLocalSuiWallet();
   }, []);
 
   // Multiplexed Zero-Rerender Native WebSocket + MMKV Outbox Sync Client
@@ -354,12 +410,149 @@ export function TownWorldScreen() {
           return next;
         });
       },
+      onCreditSync: (payload) => {
+        if (payload.playerLedger !== null) {
+          hydratePlayerCreditLedgerFromBackend(payload.playerLedger);
+        }
+
+        if (payload.npcCredits.length > 0) {
+          hydrateVillagerCreditsFromBackend(
+            activeVillagersRef.current,
+            payload.npcCredits
+          );
+        }
+
+        if (payload.officeHolder !== undefined) {
+          const nextHolder = payload.officeHolder;
+          const nextCycle = payload.lastElectionCycle;
+
+          setGovernance((prev) => {
+            if (
+              prev.officeHolder === nextHolder &&
+              (nextCycle === undefined || prev.lastElectionCycle === nextCycle)
+            ) {
+              return prev;
+            }
+
+            const updated: TownGovernanceState = {
+              ...prev,
+              officeHolder: nextHolder,
+              lastElectionCycle: nextCycle ?? prev.lastElectionCycle,
+            };
+
+            saveTownGovernance(updated);
+
+            return updated;
+          });
+        }
+
+        if (bankOpenRef.current || focusedVillagerIndexRef.current !== null) {
+          setVillagerWalletTick((t) => t + 1);
+        }
+      },
+      onBankActionAck: (ack) => {
+        if (!ack.ok) {
+          setRemoteBankError(ack.error ?? 'Bank action declined.');
+
+          return;
+        }
+
+        setRemoteBankError(null);
+
+        if (bankOpenRef.current || focusedVillagerIndexRef.current !== null) {
+          setVillagerWalletTick((t) => t + 1);
+        }
+      },
+      onNpcIntentCredit: (update) => {
+        const target = activeVillagersRef.current[update.villagerIndex];
+
+        if (target === undefined) {
+          return;
+        }
+
+        hydrateSingleVillagerCreditFromIntent(
+          target,
+          update.coinsAfter,
+          update.savingsFc,
+          update.loanDebtFc
+        );
+
+        if (focusedVillagerIndexRef.current === update.villagerIndex) {
+          setVillagerWalletTick((t) => t + 1);
+        }
+      },
+      onPersonaUpdated: (villagerIndex, overlay) => {
+        if (focusedVillagerIndexRef.current === villagerIndex) {
+          setFocusedOverlay(overlay);
+        }
+      },
+      onGovernanceUpdated: (officeHolder, lastElectionCycle) => {
+        setGovernance((prev) => {
+          const updated: TownGovernanceState = {
+            ...prev,
+            officeHolder,
+            lastElectionCycle: lastElectionCycle ?? prev.lastElectionCycle,
+          };
+
+          saveTownGovernance(updated);
+
+          return updated;
+        });
+      },
+      onElectionRejected: (errorMsg, authoritativeHolder) => {
+        if (authoritativeHolder !== undefined) {
+          setGovernance((prev) => {
+            if (prev.officeHolder === authoritativeHolder) {
+              return prev;
+            }
+
+            const corrected: TownGovernanceState = {
+              ...prev,
+              officeHolder: authoritativeHolder,
+            };
+
+            saveTownGovernance(corrected);
+
+            return corrected;
+          });
+        }
+
+        showToast(errorMsg);
+      },
+      onNpcApproachPlayer: (incoming) => {
+        setIncomingNpcApproach((prev) => {
+          if (
+            prev !== null &&
+            prev.requestKind !== 'CHAT' &&
+            incoming.requestKind === 'CHAT'
+          ) {
+            return prev;
+          }
+
+          return incoming;
+        });
+        triggerLightHaptic();
+
+        if (incomingApproachTimerRef.current !== null) {
+          clearTimeout(incomingApproachTimerRef.current);
+        }
+
+        incomingApproachTimerRef.current = setTimeout(() => {
+          setIncomingNpcApproach(null);
+          incomingApproachTimerRef.current = null;
+        }, 18_000);
+      },
     });
 
     syncClientRef.current = client;
     void client.start(initialCoins);
 
     return () => {
+      if (incomingApproachTimerRef.current !== null) {
+        clearTimeout(incomingApproachTimerRef.current);
+        incomingApproachTimerRef.current = null;
+      }
+
       client.stop();
       syncClientRef.current = null;
     };
@@ -533,6 +726,7 @@ export function TownWorldScreen() {
 
     commitPouch(nextPouch);
     commitCoins(coins + spec.npcSellPrice);
+    recordPlayerEarning(spec.npcSellPrice);
     const backendSellId = clientIconToBackendItem(itemId);
 
     if (backendSellId !== null) {
@@ -559,6 +753,7 @@ export function TownWorldScreen() {
     }
 
     commitCoins(coins - spec.npcBuyPrice);
+    recordPlayerSpending(spec.npcBuyPrice);
     commitPouch(adjustPouchItem(pouchEntries, seedItemId, 1));
     const backendSeedId = clientIconToBackendItem(seedItemId);
 
@@ -578,6 +773,9 @@ export function TownWorldScreen() {
 
   const handleOpenTownHall = (tab: TownHallTab = 'POLICY'): void => {
     setFocusedVillagerIndex(null);
+    setChatVillagerIndex(null);
+    setWalletSettingsOpen(false);
+    setBankOpen(false);
     setEditingBuilding(null);
     setTownHallTab(tab);
     setTownHallOpen(true);
@@ -599,6 +797,11 @@ export function TownWorldScreen() {
     tileY: number
   ): void => {
     const currentNow = Date.now();
+
+    syncClientRef.current?.sendPlayerPositionStream(
+      Math.round((tileX / 220) * 63),
+      Math.round((tileY / 220) * 63)
+    );
 
     const existingCrop = plantedCrops.find(
       (c) => c.tileX === tileX && c.tileY === tileY
@@ -943,6 +1146,10 @@ export function TownWorldScreen() {
 
     if (villagerIndex !== null) {
       setEditingBuilding(null);
+      setChatVillagerIndex(null);
+      setTownHallOpen(false);
+      setWalletSettingsOpen(false);
+      setBankOpen(false);
       triggerLightHaptic();
 
       const existingOverlay =
@@ -957,46 +1164,119 @@ export function TownWorldScreen() {
         `${townPrefix}_npc_${villagerIndex + 1}`;
 
       if (existingOverlay?.persona === null || existingOverlay === undefined) {
-        void fetchVillagerPersonaFromBackend(backendNpcId).then((persona) => {
-          if (persona !== null && syncClientRef.current !== null) {
-            syncClientRef.current.setVillagerPersona(villagerIndex, persona);
-            setFocusedOverlay(
-              syncClientRef.current.getVillagerOverlay(villagerIndex)
-            );
-          }
-        });
+        syncClientRef.current?.requestPersonaStream(backendNpcId);
       }
     } else {
       setFocusedOverlay(undefined);
     }
   };
 
-  const handleGenerateFocusedAiPersona = (): void => {
-    if (focusedVillagerIndex === null || isGeneratingPersona) {
-      return;
+  const handleApplyChatEconomicDelta = (
+    villagerIndex: number,
+    villagerId: string,
+    baseInventory: readonly VillagerInventoryItem[],
+    delta: ChatEconomicDelta
+  ): void => {
+    const nextPlayerCoins = Math.max(
+      0,
+      Math.round(coins + delta.playerCoinsDelta)
+    );
+
+    if (delta.playerCoinsDelta !== 0) {
+      commitCoins(nextPlayerCoins);
+
+      if (delta.playerCoinsDelta > 0) {
+        recordPlayerEarning(delta.playerCoinsDelta);
+      } else {
+        recordPlayerSpending(-delta.playerCoinsDelta);
+      }
     }
 
-    const idx = focusedVillagerIndex;
-    const townPrefix = syncClientRef.current?.currentTownId ?? activeTownId;
+    if (delta.villagerCoinsDelta !== 0) {
+      adjustVillagerWalletCoins(villagerId, delta.villagerCoinsDelta);
+      setVillagerWalletTick((t) => t + 1);
+    }
 
-    const backendNpcId =
-      focusedOverlay?.backendNpcId ?? `${townPrefix}_npc_${idx + 1}`;
+    if (delta.playerCoinsDelta !== 0 || delta.villagerCoinsDelta !== 0) {
+      syncClientRef.current?.sendNpcTradeDeltaStream(
+        villagerIndex,
+        delta.playerCoinsDelta,
+        delta.villagerCoinsDelta,
+        nextPlayerCoins
+      );
+    }
 
-    setIsGeneratingPersona(true);
-    void generateLiveAiPersonaOnBackend(backendNpcId)
-      .then((persona) => {
-        if (persona !== null && syncClientRef.current !== null) {
-          syncClientRef.current.setVillagerPersona(idx, persona);
-          setFocusedOverlay(syncClientRef.current.getVillagerOverlay(idx));
-          triggerMediumHaptic();
-          showToast(`✨ Synthesized AI Persona v${persona.version}!`);
-        } else {
-          showToast('Backend offline — using local valley persona');
+    let nextPouch = pouchEntries;
+
+    if (delta.playerItemGive !== null) {
+      nextPouch = adjustPouchItem(
+        nextPouch,
+        delta.playerItemGive.itemId,
+        -delta.playerItemGive.qty
+      );
+    }
+
+    if (delta.playerItemGain !== null) {
+      nextPouch = adjustPouchItem(
+        nextPouch,
+        delta.playerItemGain.itemId,
+        delta.playerItemGain.qty
+      );
+    }
+
+    if (nextPouch !== pouchEntries) {
+      commitPouch(nextPouch);
+    }
+
+    if (delta.villagerItemDelta !== null || delta.villagerItemGain !== null) {
+      setVillagerInventories((prev) => {
+        const current = prev.get(villagerId) ?? baseInventory;
+        const updated: VillagerInventoryItem[] = [];
+
+        for (let i = 0; i < current.length; i += 1) {
+          const entry = current[i];
+          let qty = entry.qty;
+
+          if (
+            delta.villagerItemDelta !== null &&
+            entry.item.toLowerCase() ===
+              delta.villagerItemDelta.item.toLowerCase()
+          ) {
+            qty += delta.villagerItemDelta.qtyDelta;
+          }
+
+          if (qty > 0) {
+            updated.push({ item: entry.item, qty });
+          }
         }
-      })
-      .finally(() => {
-        setIsGeneratingPersona(false);
+
+        if (delta.villagerItemGain !== null) {
+          const g = delta.villagerItemGain;
+
+          const existingPos = updated.findIndex(
+            (u) => u.item.toLowerCase() === g.item.toLowerCase()
+          );
+
+          if (existingPos >= 0) {
+            updated[existingPos] = {
+              item: updated[existingPos].item,
+              qty: updated[existingPos].qty + g.qty,
+            };
+          } else {
+            updated.push({ item: g.item, qty: g.qty });
+          }
+        }
+
+        const nextMap = new Map(prev);
+
+        nextMap.set(villagerId, updated);
+
+        return nextMap;
       });
+    }
+
+    triggerMediumHaptic();
+    showToast(delta.summaryToast);
   };
 
   const handleSwitchVisitedTown = (nextTownId: string): void => {
@@ -1056,7 +1336,64 @@ export function TownWorldScreen() {
     showToast(`Relief donated! Citizen approval → ${nextApproval}%`);
   };
 
+  const handleBuildResidentialCottage = (): void => {
+    if (coins < RESIDENTIAL_COTTAGE_COST_FC) {
+      showToast(`Need ${RESIDENTIAL_COTTAGE_COST_FC} FC to build a Cottage`);
+
+      return;
+    }
+
+    const spot = findOpenResidentialBlock(buildings);
+
+    if (spot === null) {
+      showToast('No open village residential plots remaining');
+
+      return;
+    }
+
+    const nextNum = residentialCount + 1;
+
+    const newBuilding: StoredValleyBuilding = {
+      id: `bld_cottage_${Date.now()}`,
+      spriteKey: 'cottage',
+      blockX: spot.blockX,
+      blockY: spot.blockY,
+      drawWidth: 306,
+      facing: 0,
+    };
+
+    upsertValleyBuilding(newBuilding);
+    commitCoins(coins - RESIDENTIAL_COTTAGE_COST_FC);
+    recordPlayerSpending(RESIDENTIAL_COTTAGE_COST_FC);
+    setBuildings((prev) => [...prev, newBuilding]);
+    triggerMediumHaptic();
+    showToast(
+      `Built Citizen Cottage #${nextNum}! +${RESIDENTS_PER_RESIDENTIAL_BUILDING} new citizens moving in`
+    );
+
+    const door = getBuildingDoorTile(newBuilding);
+
+    syncClientRef.current?.sendBuildResidentialStream({
+      buildingId: newBuilding.id,
+      name: `Citizen Cottage #${nextNum}`,
+      doorTileX: door.tileX,
+      doorTileY: door.tileY,
+    });
+  };
+
   const handleRunElection = (): void => {
+    const windowStatus = canHoldSummerElection(
+      season,
+      seasonalClock.cycleNumber,
+      governance.lastElectionCycle
+    );
+
+    if (!windowStatus.allowed) {
+      showToast(windowStatus.reason ?? 'Elections are held every Summer.');
+
+      return;
+    }
+
     const result = runTownElection(governance, season);
 
     setLastElection(result);
@@ -1064,6 +1401,7 @@ export function TownWorldScreen() {
       ...governance,
       officeHolder: result.winner,
       electionCount: governance.electionCount + 1,
+      lastElectionCycle: seasonalClock.cycleNumber,
       taxRatePct:
         result.winner === 'AI_STERLING'
           ? 15
@@ -1079,6 +1417,14 @@ export function TownWorldScreen() {
     });
     triggerMediumHaptic();
     showToast(result.headline);
+
+    const liveApproval = computeProjectedApproval(governance, season);
+
+    syncClientRef.current?.sendHoldElectionStream(
+      liveApproval,
+      season,
+      seasonalClock.cycleNumber
+    );
   };
 
   const handleTrainUnit = (unitKey: ArmyUnitKey): void => {
@@ -1184,7 +1530,7 @@ export function TownWorldScreen() {
 
   const focusedVillager =
     focusedVillagerIndex !== null
-      ? (TOWN_VILLAGERS[focusedVillagerIndex] ?? null)
+      ? (activeVillagers[focusedVillagerIndex] ?? null)
       : null;
 
   const focusedLocationLabel =
@@ -1203,6 +1549,7 @@ export function TownWorldScreen() {
         season={season}
         nowMs={nowMs}
         buildings={buildings}
+        villagers={activeVillagers}
         editingBuilding={editingBuilding}
         isEditPlacementValid={isEditPlacementValid}
         valleyTiles={valleyTiles}
@@ -1244,47 +1591,113 @@ export function TownWorldScreen() {
         </View>
       )}
 
-      <HeroPouchHud
-        seasonalClock={seasonalClock}
-        coins={coins}
-        pouchEntries={pouchEntries}
-        governance={governance}
-        heldTool={heldTool}
-        citizenCount={TOWN_VILLAGERS.length}
-        buildingCount={buildings.length}
-        walletShortAddress={walletShortAddress}
-        liveConnected={liveConnected}
-        visible={
-          editingBuilding === null &&
-          focusedVillager === null &&
-          !townHallOpen &&
-          !walletSettingsOpen &&
-          activeRaidTown === null
-        }
-        onSelectHeldTool={setHeldTool}
-        onCraftRecipe={handleCraftRecipe}
-        onSellItem={handleSellItem}
-        onBuySeed={handleBuySeed}
-        onOpenTownHall={handleOpenTownHall}
-        onOpenWalletSettings={() => {
-          triggerLightHaptic();
-          setWalletSettingsOpen(true);
-        }}
-      />
+      {incomingNpcApproach !== null &&
+        chatVillagerIndex === null &&
+        !townHallOpen &&
+        !walletSettingsOpen &&
+        !bankOpen &&
+        activeRaidTown === null && (
+          <IncomingNpcBanner
+            incoming={incomingNpcApproach}
+            onReply={(incoming) => {
+              const targetIdx =
+                activeVillagers[incoming.villagerIndex] !== undefined
+                  ? incoming.villagerIndex
+                  : 0;
+
+              setIncomingNpcApproach(null);
+              setFocusedVillagerIndex(targetIdx);
+              setFocusedOverlay(
+                syncClientRef.current?.getVillagerOverlay(targetIdx)
+              );
+              setChatInitialMessage(incoming.message);
+              setChatVillagerIndex(targetIdx);
+            }}
+            onDismiss={() => {
+              setIncomingNpcApproach(null);
+            }}
+          />
+        )}
+
+      {editingBuilding === null &&
+        focusedVillager === null &&
+        chatVillagerIndex === null &&
+        !townHallOpen &&
+        !walletSettingsOpen &&
+        !bankOpen &&
+        activeRaidTown === null && (
+          <HeroPouchHud
+            seasonalClock={seasonalClock}
+            coins={coins}
+            pouchEntries={pouchEntries}
+            governance={governance}
+            heldTool={heldTool}
+            citizenCount={activeVillagers.length}
+            buildingCount={buildings.length}
+            visible
+            onSelectHeldTool={setHeldTool}
+            onCraftRecipe={handleCraftRecipe}
+            onSellItem={handleSellItem}
+            onBuySeed={handleBuySeed}
+            onOpenTownHall={handleOpenTownHall}
+            onOpenBank={() => {
+              triggerLightHaptic();
+              setFocusedVillagerIndex(null);
+              setChatVillagerIndex(null);
+              setTownHallOpen(false);
+              setWalletSettingsOpen(false);
+              setBankOpen(true);
+            }}
+            onOpenWalletSettings={() => {
+              triggerLightHaptic();
+              setFocusedVillagerIndex(null);
+              setChatVillagerIndex(null);
+              setTownHallOpen(false);
+              setBankOpen(false);
+              setWalletSettingsOpen(true);
+            }}
+          />
+        )}
 
       {walletSettingsOpen && (
         <WalletSettingsModal
           visible
-          liveConnected={liveConnected}
-          activeTownId={activeTownId}
           onClose={() => {
             setWalletSettingsOpen(false);
           }}
-          onWalletChanged={(newWallet) => {
-            setWalletShortAddress(newWallet.shortAddress);
-            void syncClientRef.current?.reconnectWithWallet(coins);
+        />
+      )}
+
+      {bankOpen && (
+        <ValleyBankModal
+          visible
+          villagers={activeVillagers}
+          playerCoins={coins}
+          liveConnected={liveConnected}
+          creditSyncVersion={villagerWalletTick}
+          remoteBankError={remoteBankError}
+          onRequestCreditSync={() => {
+            syncClientRef.current?.requestCreditSyncStream(coins);
+          }}
+          onStreamBankAction={(action, amountFc, prevLiquidCoinsFc) => {
+            setRemoteBankError(null);
+            syncClientRef.current?.sendBankActionStream(
+              action,
+              amountFc,
+              prevLiquidCoinsFc
+            );
+          }}
+          onStreamNpcBankCycle={() =>
+            syncClientRef.current?.sendRunNpcBankCycleStream(coins) ?? false
+          }
+          onCommitPlayerCoins={(nextCoinsFc, toastMsg) => {
+            commitCoins(nextCoinsFc);
             triggerMediumHaptic();
-            showToast(`Switched to Sui Wallet ${newWallet.shortAddress}`);
+            showToast(toastMsg);
+          }}
+          onClose={() => {
+            setBankOpen(false);
+            setRemoteBankError(null);
           }}
         />
       )}
@@ -1299,25 +1712,105 @@ export function TownWorldScreen() {
         />
       )}
 
-      {editingBuilding === null && focusedVillager !== null && (
-        <VillagerFocusCard
-          villager={focusedVillager}
-          currentLocationLabel={focusedLocationLabel}
-          liveOverlay={focusedOverlay}
-          isGeneratingPersona={isGeneratingPersona}
-          onGenerateAiPersona={handleGenerateFocusedAiPersona}
-          onClose={() => {
-            setFocusedVillagerIndex(null);
-            setFocusedOverlay(undefined);
-          }}
-        />
-      )}
+      {editingBuilding === null &&
+        focusedVillager !== null &&
+        chatVillagerIndex === null &&
+        !townHallOpen &&
+        !walletSettingsOpen &&
+        !bankOpen &&
+        activeRaidTown === null && (
+          <VillagerFocusCard
+            key={`${focusedVillager.id}-${villagerWalletTick}`}
+            villager={focusedVillager}
+            currentLocationLabel={focusedLocationLabel}
+            liveOverlay={focusedOverlay}
+            inventoryItems={
+              villagerInventories.get(focusedVillager.id) ??
+              focusedVillager.inventory
+            }
+            onOpenChat={() => {
+              triggerLightHaptic();
+              setTownHallOpen(false);
+              setWalletSettingsOpen(false);
+              setBankOpen(false);
+              setChatInitialMessage(undefined);
+              setChatVillagerIndex(focusedVillagerIndex);
+            }}
+            onOpenBank={() => {
+              triggerLightHaptic();
+              setFocusedVillagerIndex(null);
+              setChatVillagerIndex(null);
+              setTownHallOpen(false);
+              setWalletSettingsOpen(false);
+              setBankOpen(true);
+            }}
+            onClose={() => {
+              setFocusedVillagerIndex(null);
+              setFocusedOverlay(undefined);
+            }}
+          />
+        )}
+
+      {chatVillagerIndex !== null &&
+        activeVillagers[chatVillagerIndex] !== undefined && (
+          <VillagerChatModal
+            key={`${activeVillagers[chatVillagerIndex].id}-chat`}
+            visible
+            villager={activeVillagers[chatVillagerIndex]}
+            backendNpcId={
+              focusedOverlay?.backendNpcId ??
+              `${activeTownId}_npc_${chatVillagerIndex + 1}`
+            }
+            villagerPersonality={
+              focusedOverlay?.persona?.role ===
+              activeVillagers[chatVillagerIndex].role
+                ? (focusedOverlay.persona?.backstory ??
+                  activeVillagers[chatVillagerIndex].thought)
+                : activeVillagers[chatVillagerIndex].thought
+            }
+            villagerCoins={loadVillagerWalletCoins(
+              activeVillagers[chatVillagerIndex],
+              focusedOverlay?.coinsAfter
+            )}
+            villagerInventory={
+              villagerInventories.get(activeVillagers[chatVillagerIndex].id) ??
+              activeVillagers[chatVillagerIndex].inventory
+            }
+            playerCoins={coins}
+            playerPouch={pouchEntries}
+            initialNpcMessage={chatInitialMessage}
+            onApplyEconomicDelta={(delta) => {
+              const target = activeVillagers[chatVillagerIndex];
+
+              handleApplyChatEconomicDelta(
+                chatVillagerIndex,
+                target.id,
+                target.inventory,
+                delta
+              );
+            }}
+            onOpenBank={() => {
+              setChatVillagerIndex(null);
+              setChatInitialMessage(undefined);
+              setFocusedVillagerIndex(null);
+              setBankOpen(true);
+            }}
+            onClose={() => {
+              setChatVillagerIndex(null);
+              setChatInitialMessage(undefined);
+            }}
+          />
+        )}
 
       {townHallOpen && (
         <TownHallModal
           key={townHallTab}
           visible
           season={season}
+          seasonCycleNumber={seasonalClock.cycleNumber}
+          residentialCount={residentialCount}
+          populationCount={activeVillagers.length}
+          populationCap={populationCap}
           coins={coins}
           pouchEntries={pouchEntries}
           governance={governance}
@@ -1332,6 +1825,7 @@ export function TownWorldScreen() {
           }}
           onChangeTaxRate={handleChangeTaxRate}
           onChangeWinterPolicy={handleChangeWinterPolicy}
+          onBuildResidentialCottage={handleBuildResidentialCottage}
           onRunElection={handleRunElection}
           onDonateRelief={handleDonateRelief}
           onTrainUnit={handleTrainUnit}

@@ -247,7 +247,7 @@ export async function importLocalSuiWallet(
     return {
       ok: false,
       wallet: null,
-      error: 'Enter a 12-word secret phrase or suiprivkey1… private key.',
+      error: 'Enter a 12-word secret phrase or private key.',
     };
   }
 
@@ -261,7 +261,7 @@ export async function importLocalSuiWallet(
         return {
           ok: false,
           wallet: null,
-          error: `Unsupported key scheme (${parsed.scheme}). Use an Ed25519 Sui key.`,
+          error: 'Unsupported private key type.',
         };
       }
 
@@ -280,7 +280,7 @@ export async function importLocalSuiWallet(
       return {
         ok: false,
         wallet: null,
-        error: 'Invalid suiprivkey1… private key checksum or format.',
+        error: 'Invalid private key.',
       };
     }
   }
@@ -293,7 +293,7 @@ export async function importLocalSuiWallet(
     return {
       ok: false,
       wallet: null,
-      error: `Expected 12 (or 24) recovery words or a suiprivkey1… key, got ${wordCount} words.`,
+      error: `Expected a 12-word secret phrase or private key.`,
     };
   }
 

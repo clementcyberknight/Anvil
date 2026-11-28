@@ -5,53 +5,37 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 
 import { WOOD_THEME } from '@/components/town/wood-theme';
 import {
-  loadLastSyncDiagnostic,
-  resolveBackendHttpBaseUrl,
-} from '@/lib/anvil-live-sync';
-import {
   copyPublicText,
   copySecretWalletText,
   ensureLocalSuiWallet,
-  importLocalSuiWallet,
   type LocalSuiWalletSecrets,
   type LocalSuiWalletSummary,
-  readClipboardText,
   revealLocalSuiWalletSecrets,
 } from '@/lib/sui-wallet';
 
-type WalletTab = 'OVERVIEW' | 'RECOVERY' | 'IMPORT';
+type WalletTab = 'WALLET' | 'SECRET_PHRASE' | 'PRIVATE_KEY';
 
 interface WalletSettingsModalProps {
   readonly visible: boolean;
-  readonly liveConnected: boolean;
-  readonly activeTownId: string;
   readonly onClose: () => void;
-  readonly onWalletChanged: (newWallet: LocalSuiWalletSummary) => void;
 }
 
 export function WalletSettingsModal({
   visible,
-  liveConnected,
-  activeTownId,
   onClose,
-  onWalletChanged,
 }: WalletSettingsModalProps) {
-  const [tab, setTab] = useState<WalletTab>('OVERVIEW');
+  const [tab, setTab] = useState<WalletTab>('WALLET');
   const [wallet, setWallet] = useState<LocalSuiWalletSummary | null>(null);
   const [secrets, setSecrets] = useState<LocalSuiWalletSecrets | null>(null);
-  const [isRevealed, setIsRevealed] = useState<boolean>(false);
+  const [isPhraseRevealed, setIsPhraseRevealed] = useState<boolean>(false);
+  const [isKeyRevealed, setIsKeyRevealed] = useState<boolean>(false);
   const [copiedBadge, setCopiedBadge] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [syncDiag] = useState<string | null>(() => loadLastSyncDiagnostic());
-  const [importDraft, setImportDraft] = useState<string>('');
-  const [importError, setImportError] = useState<string | null>(null);
-  const [isImporting, setIsImporting] = useState<boolean>(false);
 
   useEffect(() => {
     if (!visible) {
@@ -72,7 +56,7 @@ export function WalletSettingsModal({
           const msg =
             err instanceof Error
               ? err.message
-              : 'Could not read SecureStore wallet — rebuild native app if needed.';
+              : 'Could not load wallet from device storage.';
 
           setActionError(msg);
         }
@@ -91,7 +75,7 @@ export function WalletSettingsModal({
     setCopiedBadge(label);
     setTimeout(() => {
       setCopiedBadge((prev) => (prev === label ? null : prev));
-    }, 2200);
+    }, 2000);
   };
 
   const handleCopyPublic = async (
@@ -118,85 +102,59 @@ export function WalletSettingsModal({
       flashCopied(label);
     } catch (err) {
       const msg =
-        err instanceof Error
-          ? err.message
-          : 'Could not copy secret to clipboard.';
+        err instanceof Error ? err.message : 'Could not copy to clipboard.';
 
       setActionError(msg);
     }
   };
 
-  const handleToggleReveal = async (): Promise<void> => {
+  const handleTogglePhraseReveal = async (): Promise<void> => {
     setActionError(null);
 
-    if (isRevealed) {
-      setIsRevealed(false);
-      setSecrets(null);
+    if (isPhraseRevealed) {
+      setIsPhraseRevealed(false);
 
       return;
     }
 
     try {
-      const loaded = await revealLocalSuiWalletSecrets();
+      const loaded = secrets ?? (await revealLocalSuiWalletSecrets());
 
       setSecrets(loaded);
-      setIsRevealed(true);
+      setIsPhraseRevealed(true);
     } catch (err) {
-      setIsRevealed(false);
+      setIsPhraseRevealed(false);
 
       const msg =
-        err instanceof Error
-          ? err.message
-          : 'Unable to unlock SecureStore wallet secrets.';
+        err instanceof Error ? err.message : 'Unable to unlock secret phrase.';
 
       setActionError(msg);
     }
   };
 
-  const handlePasteClipboard = async (): Promise<void> => {
+  const handleToggleKeyReveal = async (): Promise<void> => {
     setActionError(null);
 
-    try {
-      const clip = await readClipboardText();
-
-      if (clip.trim().length > 0) {
-        setImportDraft(clip.trim());
-        setImportError(null);
-      } else {
-        setImportError('Clipboard is empty.');
-      }
-    } catch (err) {
-      const msg =
-        err instanceof Error ? err.message : 'Clipboard access was denied.';
-
-      setImportError(msg);
-    }
-  };
-
-  const handleImportSubmit = async (): Promise<void> => {
-    setIsImporting(true);
-    setImportError(null);
-
-    const result = await importLocalSuiWallet(importDraft);
-
-    setIsImporting(false);
-
-    if (!result.ok || result.wallet === null) {
-      setImportError(result.error ?? 'Failed to restore Sui wallet.');
+    if (isKeyRevealed) {
+      setIsKeyRevealed(false);
 
       return;
     }
 
-    setWallet(result.wallet);
-    setSecrets(null);
-    setIsRevealed(false);
-    setImportDraft('');
-    setTab('OVERVIEW');
-    onWalletChanged(result.wallet);
-    flashCopied('Wallet Restored!');
-  };
+    try {
+      const loaded = secrets ?? (await revealLocalSuiWalletSecrets());
 
-  const backendUrl = resolveBackendHttpBaseUrl();
+      setSecrets(loaded);
+      setIsKeyRevealed(true);
+    } catch (err) {
+      setIsKeyRevealed(false);
+
+      const msg =
+        err instanceof Error ? err.message : 'Unable to unlock private key.';
+
+      setActionError(msg);
+    }
+  };
 
   return (
     <Modal
@@ -209,8 +167,8 @@ export function WalletSettingsModal({
         <View style={styles.sheet}>
           <View style={styles.header}>
             <View style={styles.headerTitleCol}>
-              <Text style={styles.headerEyebrow}>SETTINGS · NON-CUSTODIAL</Text>
-              <Text style={styles.headerTitle}>Sui Wallet & Recovery</Text>
+              <Text style={styles.headerEyebrow}>SETTINGS</Text>
+              <Text style={styles.headerTitle}>Wallet</Text>
             </View>
             <Pressable
               accessibilityRole="button"
@@ -237,9 +195,9 @@ export function WalletSettingsModal({
           <View style={styles.tabRow}>
             {(
               [
-                { key: 'OVERVIEW', label: 'Wallet' },
-                { key: 'RECOVERY', label: 'Secret & Key' },
-                { key: 'IMPORT', label: 'Import' },
+                { key: 'WALLET', label: 'Wallet' },
+                { key: 'SECRET_PHRASE', label: 'Secret Phrase' },
+                { key: 'PRIVATE_KEY', label: 'Private Key' },
               ] as const
             ).map((item) => {
               const active = tab === item.key;
@@ -249,11 +207,8 @@ export function WalletSettingsModal({
                   key={item.key}
                   onPress={() => {
                     setTab(item.key);
-
-                    if (item.key !== 'RECOVERY') {
-                      setIsRevealed(false);
-                      setSecrets(null);
-                    }
+                    setIsPhraseRevealed(false);
+                    setIsKeyRevealed(false);
                   }}
                   style={[styles.tabPill, active && styles.tabPillActive]}
                 >
@@ -262,6 +217,7 @@ export function WalletSettingsModal({
                       styles.tabPillText,
                       active && styles.tabPillTextActive,
                     ]}
+                    numberOfLines={1}
                   >
                     {item.label}
                   </Text>
@@ -274,281 +230,173 @@ export function WalletSettingsModal({
             showsVerticalScrollIndicator={false}
             contentContainerStyle={styles.scrollBody}
           >
-            {tab === 'OVERVIEW' && (
-              <>
-                <View style={styles.card}>
-                  <View style={styles.badgeRow}>
-                    <View
-                      style={[
-                        styles.statusPill,
-                        liveConnected
-                          ? styles.statusPillLive
-                          : styles.statusPillOffline,
-                      ]}
-                    >
-                      <Text style={styles.statusPillText}>
-                        {liveConnected ? '● Railway Live' : '○ Offline Outbox'}
-                      </Text>
-                    </View>
-                    <View style={styles.schemePill}>
-                      <Text style={styles.schemePillText}>
-                        {wallet?.isAuthVerified
-                          ? 'Ed25519 Verified'
-                          : 'Sui Ed25519'}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.fieldLabel}>SUI WALLET ADDRESS</Text>
-                  <View style={styles.monoBox}>
-                    <Text selectable style={styles.monoText}>
-                      {wallet?.suiAddress ?? 'Generating local Sui keypair…'}
-                    </Text>
-                  </View>
-
-                  <Pressable
-                    disabled={wallet === null}
-                    onPress={() => {
-                      if (wallet !== null) {
-                        void handleCopyPublic(
-                          wallet.suiAddress,
-                          'Sui Address Copied'
-                        );
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.primaryBtn,
-                      pressed && styles.btnPressed,
-                    ]}
-                  >
-                    <Text style={styles.primaryBtnText}>Copy Sui Address</Text>
-                  </Pressable>
-                </View>
-
-                <View style={styles.card}>
-                  <Text style={styles.fieldLabel}>HOW SIGN-IN WORKS</Text>
-                  <Text style={styles.bodyCopy}>
-                    Your Sui wallet lives inside your device’s encrypted
-                    Keychain / Keystore. When connecting to{' '}
-                    <Text style={styles.boldCopy}>{activeTownId}</Text>, your
-                    phone signs a one-time challenge locally — your private key
-                    never touches the server.
+            {tab === 'WALLET' && (
+              <View style={styles.card}>
+                <Text style={styles.fieldLabel}>WALLET ADDRESS</Text>
+                <View style={styles.monoBox}>
+                  <Text selectable style={styles.monoText}>
+                    {wallet?.suiAddress ?? 'Loading wallet…'}
                   </Text>
-                  <Text style={styles.endpointCaption} numberOfLines={1}>
-                    Server: {backendUrl}
-                  </Text>
-                  {syncDiag !== null && (
-                    <Text style={styles.errorText}>{syncDiag}</Text>
-                  )}
                 </View>
 
-                <View style={styles.quickRow}>
-                  <Pressable
-                    onPress={() => {
-                      setTab('RECOVERY');
-                    }}
-                    style={({ pressed }) => [
-                      styles.secondaryBtn,
-                      pressed && styles.btnPressed,
-                    ]}
-                  >
-                    <Text style={styles.secondaryBtnText}>
-                      View Phrase / Private Key
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setTab('IMPORT');
-                    }}
-                    style={({ pressed }) => [
-                      styles.secondaryBtn,
-                      pressed && styles.btnPressed,
-                    ]}
-                  >
-                    <Text style={styles.secondaryBtnText}>Import Wallet</Text>
-                  </Pressable>
-                </View>
-              </>
+                <Pressable
+                  disabled={wallet === null}
+                  onPress={() => {
+                    if (wallet !== null) {
+                      void handleCopyPublic(
+                        wallet.suiAddress,
+                        'Address Copied'
+                      );
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.primaryBtn,
+                    pressed && styles.btnPressed,
+                  ]}
+                >
+                  <Text style={styles.primaryBtnText}>Copy Address</Text>
+                </Pressable>
+              </View>
             )}
 
-            {tab === 'RECOVERY' && (
+            {tab === 'SECRET_PHRASE' && (
               <>
                 <View style={styles.warningCard}>
-                  <Text style={styles.warningTitle}>
-                    Self-Custody Backup Warning
-                  </Text>
+                  <Text style={styles.warningTitle}>Keep Your Phrase Safe</Text>
                   <Text style={styles.warningBody}>
-                    Never share your 12-word Secret Phrase or Private Key with
-                    anyone. Store them offline — compatible with Sui Wallet,
-                    Slush, Phantom, and Nightly (`m/44&apos;/784&apos;/0&apos;/0&apos;/0&apos;`).
+                    Never share your 12-word secret phrase with anyone. Anyone
+                    with these words can access your wallet.
                   </Text>
                 </View>
 
                 <Pressable
                   onPress={() => {
-                    void handleToggleReveal();
+                    void handleTogglePhraseReveal();
                   }}
                   style={({ pressed }) => [
-                    isRevealed ? styles.secondaryBtnFull : styles.revealBtn,
+                    isPhraseRevealed ? styles.secondaryBtnFull : styles.revealBtn,
                     pressed && styles.btnPressed,
                   ]}
                 >
                   <Text
                     style={
-                      isRevealed
+                      isPhraseRevealed
                         ? styles.secondaryBtnText
                         : styles.revealBtnText
                     }
                   >
-                    {isRevealed
-                      ? 'Hide Secret Phrase & Private Key'
-                      : 'Tap to Reveal Secret Phrase & Private Key'}
+                    {isPhraseRevealed
+                      ? 'Hide Secret Phrase'
+                      : 'Reveal Secret Phrase'}
                   </Text>
                 </Pressable>
 
-                {isRevealed && secrets !== null && (
-                  <>
-                    <View style={styles.card}>
-                      <Text style={styles.fieldLabel}>
-                        12-WORD SECRET RECOVERY PHRASE
+                {isPhraseRevealed && secrets !== null && (
+                  <View style={styles.card}>
+                    <Text style={styles.fieldLabel}>SECRET PHRASE</Text>
+                    {secrets.mnemonicWords.length > 0 &&
+                    secrets.mnemonicPhrase !== null ? (
+                      <>
+                        <View style={styles.wordGrid}>
+                          {secrets.mnemonicWords.map((word, idx) => (
+                            <View
+                              key={`${idx + 1}-${word}`}
+                              style={styles.wordCell}
+                            >
+                              <Text style={styles.wordIndex}>{idx + 1}.</Text>
+                              <Text selectable style={styles.wordText}>
+                                {word}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                        <Pressable
+                          onPress={() => {
+                            if (secrets.mnemonicPhrase !== null) {
+                              void handleCopySecret(
+                                secrets.mnemonicPhrase,
+                                'Secret Phrase Copied'
+                              );
+                            }
+                          }}
+                          style={({ pressed }) => [
+                            styles.primaryBtn,
+                            pressed && styles.btnPressed,
+                          ]}
+                        >
+                          <Text style={styles.primaryBtnText}>
+                            Copy Secret Phrase
+                          </Text>
+                        </Pressable>
+                      </>
+                    ) : (
+                      <Text style={styles.bodyCopy}>
+                        No 12-word phrase is stored for this wallet. Use the
+                        Private Key tab to back it up.
                       </Text>
-                      {secrets.mnemonicWords.length > 0 &&
-                      secrets.mnemonicPhrase !== null ? (
-                        <>
-                          <View style={styles.wordGrid}>
-                            {secrets.mnemonicWords.map((word, idx) => (
-                              <View
-                                key={`${idx + 1}-${word}`}
-                                style={styles.wordCell}
-                              >
-                                <Text style={styles.wordIndex}>{idx + 1}.</Text>
-                                <Text selectable style={styles.wordText}>
-                                  {word}
-                                </Text>
-                              </View>
-                            ))}
-                          </View>
-                          <Pressable
-                            onPress={() => {
-                              if (secrets.mnemonicPhrase !== null) {
-                                void handleCopySecret(
-                                  secrets.mnemonicPhrase,
-                                  'Secret Phrase Copied (Auto-Expires)'
-                                );
-                              }
-                            }}
-                            style={({ pressed }) => [
-                              styles.primaryBtn,
-                              pressed && styles.btnPressed,
-                            ]}
-                          >
-                            <Text style={styles.primaryBtnText}>
-                              Copy 12-Word Secret Phrase
-                            </Text>
-                          </Pressable>
-                        </>
-                      ) : (
-                        <Text style={styles.bodyCopy}>
-                          This wallet was imported directly from a{' '}
-                          <Text style={styles.boldCopy}>suiprivkey1…</Text>{' '}
-                          Private Key (no parent 12-word phrase). Back up your
-                          Private Key below.
-                        </Text>
-                      )}
-                    </View>
-
-                    <View style={styles.card}>
-                      <Text style={styles.fieldLabel}>
-                        SUI PRIVATE KEY (BECH32)
-                      </Text>
-                      <View style={styles.monoBox}>
-                        <Text selectable style={styles.monoText}>
-                          {secrets.privateKeyBech32}
-                        </Text>
-                      </View>
-                      <Pressable
-                        onPress={() => {
-                          void handleCopySecret(
-                            secrets.privateKeyBech32,
-                            'Private Key Copied (Auto-Expires)'
-                          );
-                        }}
-                        style={({ pressed }) => [
-                          styles.secondaryBtnFull,
-                          pressed && styles.btnPressed,
-                        ]}
-                      >
-                        <Text style={styles.secondaryBtnText}>
-                          Copy Private Key (suiprivkey1…)
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </>
+                    )}
+                  </View>
                 )}
               </>
             )}
 
-            {tab === 'IMPORT' && (
-              <View style={styles.card}>
-                <Text style={styles.fieldLabel}>
-                  RESTORE FROM SECRET PHRASE OR PRIVATE KEY
-                </Text>
-                <Text style={styles.bodyCopy}>
-                  Paste a 12-word (or 24-word) Sui Secret Recovery Phrase, or a{' '}
-                  <Text style={styles.boldCopy}>suiprivkey1…</Text> Bech32
-                  private key to switch accounts on this device.
-                </Text>
-
-                <TextInput
-                  value={importDraft}
-                  onChangeText={(txt) => {
-                    setImportDraft(txt);
-
-                    if (importError !== null) {
-                      setImportError(null);
-                    }
-                  }}
-                  placeholder="e.g. word1 word2 … word12  OR  suiprivkey1q…"
-                  placeholderTextColor={WOOD_THEME.inkMuted}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  multiline
-                  style={styles.secretInput}
-                />
-
-                {importError !== null && (
-                  <Text style={styles.errorText}>{importError}</Text>
-                )}
-
-                <View style={styles.quickRow}>
-                  <Pressable
-                    onPress={() => {
-                      void handlePasteClipboard();
-                    }}
-                    style={({ pressed }) => [
-                      styles.secondaryBtn,
-                      pressed && styles.btnPressed,
-                    ]}
-                  >
-                    <Text style={styles.secondaryBtnText}>Paste Clipboard</Text>
-                  </Pressable>
-                  <Pressable
-                    disabled={isImporting}
-                    onPress={() => {
-                      void handleImportSubmit();
-                    }}
-                    style={({ pressed }) => [
-                      styles.primaryBtnFlex,
-                      isImporting && styles.btnDisabled,
-                      pressed && styles.btnPressed,
-                    ]}
-                  >
-                    <Text style={styles.primaryBtnText}>
-                      {isImporting ? 'Verifying…' : 'Restore Wallet'}
-                    </Text>
-                  </Pressable>
+            {tab === 'PRIVATE_KEY' && (
+              <>
+                <View style={styles.warningCard}>
+                  <Text style={styles.warningTitle}>Keep Your Key Safe</Text>
+                  <Text style={styles.warningBody}>
+                    Never share your private key with anyone. Anyone with this
+                    key can access your wallet.
+                  </Text>
                 </View>
-              </View>
+
+                <Pressable
+                  onPress={() => {
+                    void handleToggleKeyReveal();
+                  }}
+                  style={({ pressed }) => [
+                    isKeyRevealed ? styles.secondaryBtnFull : styles.revealBtn,
+                    pressed && styles.btnPressed,
+                  ]}
+                >
+                  <Text
+                    style={
+                      isKeyRevealed
+                        ? styles.secondaryBtnText
+                        : styles.revealBtnText
+                    }
+                  >
+                    {isKeyRevealed ? 'Hide Private Key' : 'Reveal Private Key'}
+                  </Text>
+                </Pressable>
+
+                {isKeyRevealed && secrets !== null && (
+                  <View style={styles.card}>
+                    <Text style={styles.fieldLabel}>PRIVATE KEY</Text>
+                    <View style={styles.monoBox}>
+                      <Text selectable style={styles.monoText}>
+                        {secrets.privateKeyBech32}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        void handleCopySecret(
+                          secrets.privateKeyBech32,
+                          'Private Key Copied'
+                        );
+                      }}
+                      style={({ pressed }) => [
+                        styles.primaryBtn,
+                        pressed && styles.btnPressed,
+                      ]}
+                    >
+                      <Text style={styles.primaryBtnText}>
+                        Copy Private Key
+                      </Text>
+                    </Pressable>
+                  </View>
+                )}
+              </>
             )}
           </ScrollView>
         </View>
@@ -635,7 +483,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   tabPillActive: {
     backgroundColor: WOOD_THEME.tabActiveBg,
@@ -644,7 +492,7 @@ const styles = StyleSheet.create({
   },
   tabPillText: {
     color: WOOD_THEME.inkSecondary,
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '800',
   },
   tabPillTextActive: {
@@ -660,42 +508,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: WOOD_THEME.cardBorder,
     padding: 12,
-    gap: 9,
-  },
-  badgeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  statusPill: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  statusPillLive: {
-    backgroundColor: '#DCFCE7',
-  },
-  statusPillOffline: {
-    backgroundColor: WOOD_THEME.badgeGoldBg,
-  },
-  statusPillText: {
-    color: WOOD_THEME.inkPrimary,
-    fontSize: 11,
-    fontWeight: '800',
-  },
-  schemePill: {
-    backgroundColor: WOOD_THEME.badgeGoldBg,
-    borderWidth: 1,
-    borderColor: WOOD_THEME.badgeGoldBorder,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  schemePillText: {
-    color: WOOD_THEME.badgeGoldText,
-    fontSize: 10.5,
-    fontWeight: '800',
+    gap: 10,
   },
   fieldLabel: {
     color: WOOD_THEME.inkMuted,
@@ -720,15 +533,6 @@ const styles = StyleSheet.create({
     color: WOOD_THEME.inkSecondary,
     fontSize: 12.5,
     lineHeight: 18,
-  },
-  boldCopy: {
-    color: WOOD_THEME.inkPrimary,
-    fontWeight: '800',
-  },
-  endpointCaption: {
-    color: WOOD_THEME.inkMuted,
-    fontSize: 11,
-    fontWeight: '600',
   },
   warningCard: {
     backgroundColor: WOOD_THEME.ctaDangerSoftBg,
@@ -790,37 +594,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
   },
-  secretInput: {
-    minHeight: 88,
-    backgroundColor: WOOD_THEME.cardMutedBg,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: WOOD_THEME.cardBorder,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: WOOD_THEME.inkPrimary,
-    fontSize: 13,
-    textAlignVertical: 'top',
-  },
-  errorText: {
-    color: WOOD_THEME.ctaDangerText,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  quickRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
   primaryBtn: {
-    minHeight: 44,
-    borderRadius: 12,
-    backgroundColor: WOOD_THEME.ctaWoodBg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 14,
-  },
-  primaryBtnFlex: {
-    flex: 1,
     minHeight: 44,
     borderRadius: 12,
     backgroundColor: WOOD_THEME.ctaWoodBg,
@@ -832,17 +606,6 @@ const styles = StyleSheet.create({
     color: WOOD_THEME.inkOnDark,
     fontSize: 12.5,
     fontWeight: '800',
-  },
-  secondaryBtn: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
-    backgroundColor: WOOD_THEME.ctaWoodSoftBg,
-    borderWidth: 1.5,
-    borderColor: WOOD_THEME.cardBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 10,
   },
   secondaryBtnFull: {
     minHeight: 44,
@@ -861,8 +624,5 @@ const styles = StyleSheet.create({
   },
   btnPressed: {
     transform: [{ scale: 0.96 }],
-  },
-  btnDisabled: {
-    opacity: 0.55,
   },
 });

@@ -1,4 +1,5 @@
 import type { ValleyPlantedCrop } from '@/game/economy-engine';
+import { generateUniqueNpcName } from '@/game/npc-names';
 import type { StoredValleyTile } from '@/game/town-db';
 import {
   getBuildingDoorTile,
@@ -19,9 +20,13 @@ import {
   type VillagerRoleKey,
 } from '@/game/villager-atlas';
 
+export type NpcAmbitionDrive = 'NONE' | 'RUTHLESS_WEALTH' | 'MAYOR_ASPIRANT';
+
 export type VillagerArchetype =
   | 'Founder Hero'
   | 'Town Sovereign'
+  | 'Mayor Contender'
+  | 'Ruthless Profiteer'
   | 'Frugal Saver'
   | 'Ambitious Entrepreneur'
   | 'Property Landlord'
@@ -85,6 +90,9 @@ export interface TownVillagerProfile {
   readonly roleRow: number;
   readonly isHero: boolean;
   readonly archetype: VillagerArchetype;
+  readonly ambitionDrive: NpcAmbitionDrive;
+  readonly ambitionLevel: number;
+  readonly campaignSupportPct: number;
   readonly housingStatus: VillagerHousingStatus;
   readonly homeLabel: string;
   readonly workplaceLabel: string;
@@ -180,23 +188,23 @@ export const TOWN_STREET_NODES: Record<StreetNodeId, StreetWaypointNode> = {
   },
   lake_north_center: {
     id: 'lake_north_center',
-    label: 'Lakefront Promenade',
+    label: 'North Promenade',
     x: bx(27.5),
-    y: by(47.42),
+    y: by(47.08),
     neighbors: ['civic_plaza', 'lake_nw', 'lake_ne'],
   },
   lake_nw: {
     id: 'lake_nw',
     label: 'NW Cottage Corner',
     x: bx(25.9),
-    y: by(47.42),
+    y: by(47.08),
     neighbors: ['lake_north_center', 'west_sawmill'],
   },
   lake_ne: {
     id: 'lake_ne',
-    label: 'Harbor Pier Overlook',
+    label: 'East Promenade Corner',
     x: bx(29.0),
-    y: by(47.42),
+    y: by(47.08),
     neighbors: ['lake_north_center', 'east_harbor'],
   },
   west_sawmill: {
@@ -306,557 +314,358 @@ export const TOWN_STREET_NODES: Record<StreetNodeId, StreetWaypointNode> = {
   },
 };
 
-export const TOWN_VILLAGERS: readonly TownVillagerProfile[] = [
-  {
-    id: 'vil_mayor',
-    name: 'Mayor Barnaby',
-    role: 'mayor',
-    roleRow: VILLAGER_ROLE_ROW.mayor,
-    isHero: false,
-    archetype: 'Town Sovereign',
-    housingStatus: 'Town Hall Official',
-    homeLabel: 'Town Hall',
-    workplaceLabel: 'Town Hall & Treasury',
-    coins: 1450,
-    rentSummary: 'Treasury: 1,450 FC · Tax 10%',
-    activity: 'Managing First Freeze fish & firewood rations',
-    thought: '72 hours till the pass thaws—Fish Stew & Firewood keep us alive!',
-    inventory: [
-      { item: 'Tax Decree', qty: 1 },
-      { item: 'Fish Stew', qty: 2 },
-    ],
-    preferredNodes: [
-      'civic_plaza',
-      'lake_north_center',
-      'plaza_north',
-      'plaza_south',
-    ],
-    speedPxPerSec: 68,
-    startNode: 'civic_plaza',
-    laneOffsetX: -12,
-    laneOffsetY: 4,
-    phaseSeed: 1.4,
-  },
-  {
-    id: 'vil_builder_1',
-    name: 'Hector',
-    role: 'builder',
-    roleRow: VILLAGER_ROLE_ROW.builder,
-    isHero: false,
-    archetype: 'Ambitious Entrepreneur',
-    housingStatus: 'Business Owner',
-    homeLabel: 'Builder Workshop',
-    workplaceLabel: 'Builder Shop',
-    coins: 410,
-    rentSummary: 'Owns Builder Shop · +90 FC/job',
-    activity: 'Hauling timber for new cottages',
-    thought: 'Need 6 more iron nails from the Blacksmith before framing!',
-    inventory: [
-      { item: 'Pine Planks', qty: 12 },
-      { item: 'Blueprints', qty: 2 },
-      { item: 'Iron Nails', qty: 18 },
-    ],
-    preferredNodes: [
-      'west_builder',
-      'west_sawmill',
-      'west_blacksmith',
-      'plaza_west',
-      'east_cottage',
-    ],
-    speedPxPerSec: 74,
-    startNode: 'west_builder',
-    laneOffsetX: 10,
-    laneOffsetY: -6,
-    phaseSeed: 2.2,
-  },
-  {
-    id: 'vil_builder_2',
-    name: 'Bram',
-    role: 'builder',
-    roleRow: VILLAGER_ROLE_ROW.builder,
-    isHero: false,
-    archetype: 'Frugal Saver',
-    housingStatus: 'Tenant',
-    homeLabel: 'SW Citizen Cottage',
-    workplaceLabel: 'Builder Crew',
-    coins: 185,
-    rentSummary: 'Pays 24 FC rent · Saving for home',
-    activity: 'Surveying plots near South Farm',
-    thought: 'Two more construction contracts and I can buy my own cottage.',
-    inventory: [
-      { item: 'Pine Planks', qty: 6 },
-      { item: 'Mallet', qty: 1 },
-    ],
-    preferredNodes: [
-      'west_builder',
-      'west_blacksmith',
-      'plaza_south',
-      'south_farm_mid',
-    ],
-    speedPxPerSec: 76,
-    startNode: 'west_main',
-    laneOffsetX: -14,
-    laneOffsetY: 8,
-    phaseSeed: 3.1,
-  },
-  {
-    id: 'vil_baker',
-    name: 'Mabel',
-    role: 'baker',
-    roleRow: VILLAGER_ROLE_ROW.baker,
-    isHero: false,
-    archetype: 'Community Artisan',
-    housingStatus: 'Business Owner',
-    homeLabel: 'Cozy Bakery Loft',
-    workplaceLabel: 'Cozy Bakery',
-    coins: 328,
-    rentSummary: 'Owns Bakery · 10% business tax',
-    activity: 'Picking up fresh flour from Windmill',
-    thought: 'Loaves sell out fast whenever snow starts falling!',
-    inventory: [
-      { item: 'Warm Bread', qty: 14 },
-      { item: 'Wheat Flour', qty: 5 },
-    ],
-    preferredNodes: [
-      'plaza_north',
-      'west_main',
-      'plaza_east',
-      'east_ranch',
-    ],
-    speedPxPerSec: 72,
-    startNode: 'plaza_north',
-    laneOffsetX: 14,
-    laneOffsetY: 6,
-    phaseSeed: 4.0,
-  },
-  {
-    id: 'vil_blacksmith',
-    name: 'Torin',
-    role: 'blacksmith',
-    roleRow: VILLAGER_ROLE_ROW.blacksmith,
-    isHero: false,
-    archetype: 'Winter Prepper',
-    housingStatus: 'Homeowner',
-    homeLabel: 'Forge Quarters',
-    workplaceLabel: 'Yeti Blacksmith',
-    coins: 390,
-    rentSummary: 'Owns Forge · 0 FC rent',
-    activity: 'Delivering forged nails & axes',
-    thought: 'Stockpiling coal and firewood early before Winter 2x hits.',
-    inventory: [
-      { item: 'Iron Nails', qty: 24 },
-      { item: 'Steel Axe', qty: 2 },
-      { item: 'Firewood', qty: 9 },
-    ],
-    preferredNodes: [
-      'west_blacksmith',
-      'west_builder',
-      'west_sawmill',
-      'plaza_west',
-    ],
-    speedPxPerSec: 70,
-    startNode: 'west_blacksmith',
-    laneOffsetX: 12,
-    laneOffsetY: -4,
-    phaseSeed: 4.8,
-  },
-  {
-    id: 'vil_lumberjack',
-    name: 'Gunnar',
-    role: 'lumberjack',
-    roleRow: VILLAGER_ROLE_ROW.lumberjack,
-    isHero: false,
-    archetype: 'Winter Prepper',
-    housingStatus: 'Homeowner',
-    homeLabel: 'NW Citizen Cottage',
-    workplaceLabel: 'Cozy Sawmill',
-    coins: 295,
-    rentSummary: 'Homeowner · Sells Firewood',
-    activity: 'Hauling freshly split pine logs',
-    thought: 'Everyone begs for firewood once the blizzard rolls in.',
-    inventory: [
-      { item: 'Firewood', qty: 18 },
-      { item: 'Pine Planks', qty: 10 },
-    ],
-    preferredNodes: [
-      'west_sawmill',
-      'lake_nw',
-      'west_builder',
-      'plaza_west',
-    ],
-    speedPxPerSec: 73,
-    startNode: 'west_sawmill',
-    laneOffsetX: -12,
-    laneOffsetY: -8,
-    phaseSeed: 5.5,
-  },
-  {
-    id: 'vil_farmer',
-    name: 'Pip',
-    role: 'farmer',
-    roleRow: VILLAGER_ROLE_ROW.farmer,
-    isHero: false,
-    archetype: 'Frugal Saver',
-    housingStatus: 'Tenant',
-    homeLabel: 'East Village Cottage',
-    workplaceLabel: 'South Farmland',
-    coins: 152,
-    rentSummary: 'Tenant · 22 FC/cycle',
-    activity: 'Carrying grain toward the Windmill',
-    thought: 'Cleared loamy soil grows pine and grain twice as fast!',
-    inventory: [
-      { item: 'Wheat Sheaves', qty: 11 },
-      { item: 'Pine Seeds', qty: 6 },
-    ],
-    preferredNodes: [
-      'south_farm_end',
-      'south_farm_mid',
-      'plaza_south',
-      'west_main',
-    ],
-    speedPxPerSec: 75,
-    startNode: 'south_farm_end',
-    laneOffsetX: 12,
-    laneOffsetY: 0,
-    phaseSeed: 6.2,
-  },
-  {
-    id: 'vil_rancher',
-    name: 'Freya',
-    role: 'rancher',
-    roleRow: VILLAGER_ROLE_ROW.rancher,
-    isHero: false,
-    archetype: 'Community Artisan',
-    housingStatus: 'Business Owner',
-    homeLabel: 'Yak Barn Loft',
-    workplaceLabel: 'Yak Barn & Creamery',
-    coins: 344,
-    rentSummary: 'Owns Yak Barn · Steady dairy trade',
-    activity: 'Delivering yak milk to Cheese Cellar',
-    thought: 'Aged alpine cheese trades for a fortune at the Market Hall.',
-    inventory: [
-      { item: 'Yak Milk', qty: 8 },
-      { item: 'Alpine Cheese', qty: 6 },
-    ],
-    preferredNodes: [
-      'east_ranch',
-      'east_main',
-      'plaza_east',
-      'plaza_north',
-    ],
-    speedPxPerSec: 71,
-    startNode: 'east_ranch',
-    laneOffsetX: -10,
-    laneOffsetY: 6,
-    phaseSeed: 7.0,
-  },
-  {
-    id: 'vil_miller',
-    name: 'Orson',
-    role: 'miller',
-    roleRow: VILLAGER_ROLE_ROW.miller,
-    isHero: false,
-    archetype: 'Frugal Saver',
-    housingStatus: 'Homeowner',
-    homeLabel: 'Windmill Cottage',
-    workplaceLabel: 'Windmill Cottage',
-    coins: 260,
-    rentSummary: 'Homeowner · Supplies Bakery',
-    activity: 'Delivering flour sacks to Bakery',
-    thought: 'Good breeze off the frozen lake keeps the millstones turning.',
-    inventory: [
-      { item: 'Wheat Flour', qty: 15 },
-      { item: 'Grain Sack', qty: 4 },
-    ],
-    preferredNodes: [
-      'west_main',
-      'plaza_west',
-      'plaza_north',
-      'south_farm_mid',
-    ],
-    speedPxPerSec: 69,
-    startNode: 'plaza_west',
-    laneOffsetX: 6,
-    laneOffsetY: 12,
-    phaseSeed: 7.9,
-  },
-  {
-    id: 'vil_angler',
-    name: 'Finn',
-    role: 'angler',
-    roleRow: VILLAGER_ROLE_ROW.angler,
-    isHero: false,
-    archetype: 'Community Artisan',
-    housingStatus: 'Homeowner',
-    homeLabel: 'Fishing Pier Cabin',
-    workplaceLabel: 'Lakeside Fishing Pier',
-    coins: 274,
-    rentSummary: 'Homeowner · Fresh lake trout',
-    activity: 'Bringing fresh trout to Smokehouse',
-    thought: 'Ice trout are biting right near the east dock today!',
-    inventory: [
-      { item: 'Frost Trout', qty: 9 },
-      { item: 'Smoked Fish', qty: 4 },
-    ],
-    preferredNodes: [
-      'east_harbor',
-      'east_smokehouse',
-      'lake_ne',
-      'plaza_east',
-    ],
-    speedPxPerSec: 72,
-    startNode: 'east_harbor',
-    laneOffsetX: 12,
-    laneOffsetY: -6,
-    phaseSeed: 8.6,
-  },
-  {
-    id: 'vil_banker',
-    name: 'Alistair',
-    role: 'banker',
-    roleRow: VILLAGER_ROLE_ROW.banker,
-    isHero: false,
-    archetype: 'Ambitious Entrepreneur',
-    housingStatus: 'Business Owner',
-    homeLabel: 'Bank Upper Flat',
-    workplaceLabel: 'Town Bank & Treasury',
-    coins: 720,
-    rentSummary: 'Manages loans & Market exchange',
-    activity: 'Auditing Market Hall trade ledgers',
-    thought: 'Three citizens applied for cottage construction loans this week.',
-    inventory: [
-      { item: 'Gold Ledger', qty: 1 },
-      { item: 'Loan Deeds', qty: 3 },
-    ],
-    preferredNodes: [
-      'civic_plaza',
-      'lake_north_center',
-      'lake_ne',
-      'east_main',
-      'plaza_north',
-    ],
-    speedPxPerSec: 70,
-    startNode: 'lake_north_center',
-    laneOffsetX: 14,
-    laneOffsetY: -6,
-    phaseSeed: 9.3,
-  },
-  {
-    id: 'vil_landlord',
-    name: 'Lord Sterling',
-    role: 'landlord',
-    roleRow: VILLAGER_ROLE_ROW.landlord,
-    isHero: false,
-    archetype: 'Property Landlord',
-    housingStatus: 'Landlord',
-    homeLabel: 'East Village Cottage',
-    workplaceLabel: '3 Rental Cottages',
-    coins: 890,
-    rentSummary: 'Collects +72 FC/cycle · 12% prop. tax',
-    activity: 'Collecting rent & eyeing open 4×4 plots',
-    thought: 'Hiring Hector to build a 4th rental cottage near the Plaza.',
-    inventory: [
-      { item: 'House Keys', qty: 3 },
-      { item: 'Land Deeds', qty: 2 },
-    ],
-    preferredNodes: [
-      'east_cottage',
-      'east_main',
-      'plaza_east',
-      'west_builder',
-      'lake_nw',
-      'civic_plaza',
-    ],
-    speedPxPerSec: 66,
-    startNode: 'east_cottage',
-    laneOffsetX: 0,
-    laneOffsetY: 10,
-    phaseSeed: 10.1,
-  },
-  {
-    id: 'vil_police',
-    name: 'Officer Vane',
-    role: 'police',
-    roleRow: VILLAGER_ROLE_ROW.police,
-    isHero: false,
-    archetype: 'Civic Protector',
-    housingStatus: 'Public Servant',
-    homeLabel: 'Town Hall Watchroom',
-    workplaceLabel: 'Town Watch Patrol',
-    coins: 215,
-    rentSummary: 'Treasury salary: +35 FC/cycle',
-    activity: 'Patrolling Bank & Market streets',
-    thought: 'Spotted a hooded rogue snooping near the Smokehouse alley...',
-    inventory: [
-      { item: 'Brass Lantern', qty: 1 },
-      { item: 'Watch Whistle', qty: 1 },
-    ],
-    preferredNodes: [
-      'plaza_north',
-      'civic_plaza',
-      'east_smokehouse',
-      'east_main',
-      'plaza_south',
-      'west_main',
-    ],
-    speedPxPerSec: 80,
-    startNode: 'plaza_east',
-    laneOffsetX: -8,
-    laneOffsetY: -10,
-    phaseSeed: 11.0,
-  },
-  {
-    id: 'vil_criminal',
-    name: 'Sly Rusk',
-    role: 'criminal',
-    roleRow: VILLAGER_ROLE_ROW.criminal,
-    isHero: false,
-    archetype: 'Opportunist Outlaw',
-    housingStatus: 'Undercover Squatter',
-    homeLabel: 'Pine Edge Hideout',
-    workplaceLabel: 'Unregistered Alleyways',
-    coins: 142,
-    rentSummary: '0 FC rent · Avoids Guard patrol',
-    activity: 'Scouting unguarded firewood stacks',
-    thought: 'Keep clear of Officer Vane’s lantern around the Bank...',
-    inventory: [
-      { item: 'Pilfered Coins', qty: 42 },
-      { item: 'Stolen Bread', qty: 2 },
-    ],
-    preferredNodes: [
-      'lake_nw',
-      'west_sawmill',
-      'west_blacksmith',
-      'east_smokehouse',
-      'east_cottage',
-    ],
-    speedPxPerSec: 84,
-    startNode: 'east_smokehouse',
-    laneOffsetX: -16,
-    laneOffsetY: 6,
-    phaseSeed: 11.8,
-  },
-  {
-    id: 'vil_cultist',
-    name: 'Elder Vesper',
-    role: 'cultist',
-    roleRow: VILLAGER_ROLE_ROW.cultist,
-    isHero: false,
-    archetype: 'Frost Zealot',
-    housingStatus: 'Communal Co-Owner',
-    homeLabel: 'Hidden Frost Shrine Fund',
-    workplaceLabel: 'Order of the Eternal Frost',
-    coins: 168,
-    rentSummary: 'Tithes 30% to Shrine Pool (310 FC)',
-    activity: 'Whispering prophecies at the Stone Well',
-    thought: 'When Winter doubles the bread price, the weary will listen.',
-    inventory: [
-      { item: 'Frost Lantern', qty: 1 },
-      { item: 'Ice Relic', qty: 2 },
-    ],
-    preferredNodes: [
-      'plaza_south',
-      'south_farm_end',
-      'lake_nw',
-      'lake_ne',
-    ],
-    speedPxPerSec: 64,
-    startNode: 'plaza_south',
-    laneOffsetX: -14,
-    laneOffsetY: -8,
-    phaseSeed: 12.6,
-  },
-  {
-    id: 'vil_unemployed',
-    name: 'Toby',
-    role: 'unemployed',
-    roleRow: VILLAGER_ROLE_ROW.unemployed,
-    isHero: false,
-    archetype: 'Hopeful Drifter',
-    housingStatus: 'Unhoused Transient',
-    homeLabel: 'Plaza Stone Well Bench',
-    workplaceLabel: 'Seeking Day-Labor',
-    coins: 18,
-    rentSummary: '0 FC rent · Needs 22 FC for Cottage',
-    activity: 'Looking for plank-hauling shifts',
-    thought: 'Hope Hector or the Sawmill has odd work before dark...',
-    inventory: [
-      { item: 'Travel Bindle', qty: 1 },
-      { item: 'Crusty Bread', qty: 1 },
-    ],
-    preferredNodes: [
-      'plaza_south',
-      'plaza_west',
-      'west_builder',
-      'west_sawmill',
-    ],
-    speedPxPerSec: 60,
-    startNode: 'plaza_south',
-    laneOffsetX: 16,
-    laneOffsetY: 10,
-    phaseSeed: 13.4,
-  },
-  {
-    id: 'vil_citizen_1',
-    name: 'Nora',
-    role: 'citizen',
-    roleRow: VILLAGER_ROLE_ROW.citizen,
-    isHero: false,
-    archetype: 'Frugal Saver',
-    housingStatus: 'Tenant',
-    homeLabel: 'NW Citizen Cottage',
-    workplaceLabel: 'Market Helper',
-    coins: 196,
-    rentSummary: 'Tenant · 22 FC/cycle',
-    activity: 'Shopping for bread & cheese',
-    thought: 'Comparing Bakery prices before Winter sets in.',
-    inventory: [
-      { item: 'Warm Bread', qty: 3 },
-      { item: 'Alpine Cheese', qty: 2 },
-    ],
-    preferredNodes: [
-      'lake_nw',
-      'lake_north_center',
-      'plaza_north',
-      'plaza_east',
-    ],
-    speedPxPerSec: 74,
-    startNode: 'lake_nw',
-    laneOffsetX: 10,
-    laneOffsetY: 8,
-    phaseSeed: 14.2,
-  },
-  {
-    id: 'vil_citizen_2',
-    name: 'Bramble',
-    role: 'citizen',
-    roleRow: VILLAGER_ROLE_ROW.citizen,
-    isHero: false,
-    archetype: 'Community Artisan',
-    housingStatus: 'Tenant',
-    homeLabel: 'SW Citizen Cottage',
-    workplaceLabel: 'Plaza Porter',
-    coins: 210,
-    rentSummary: 'Tenant · 24 FC/cycle',
-    activity: 'Chatting with neighbors by the Well',
-    thought: 'The new street lanterns make evening walks feel so cozy!',
-    inventory: [
-      { item: 'Smoked Fish', qty: 2 },
-      { item: 'Firewood', qty: 4 },
-    ],
-    preferredNodes: [
-      'plaza_west',
-      'plaza_south',
-      'east_main',
-      'east_ranch',
-    ],
-    speedPxPerSec: 72,
-    startNode: 'east_main',
-    laneOffsetX: -12,
-    laneOffsetY: -10,
-    phaseSeed: 15.0,
-  },
+function hashCastSeed(input: string): number {
+  let h = 2166136261;
+
+  for (let i = 0; i < input.length; i += 1) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+
+  return h >>> 0;
+}
+
+function createMulberryPrng(seedText: string): () => number {
+  let state = hashCastSeed(seedText) || 123456789;
+
+  return () => {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function pickFrom<T>(arr: readonly T[], rng: () => number): T {
+  const idx = Math.floor(rng() * arr.length) % arr.length;
+
+  return arr[idx];
+}
+
+function shuffleWithPrng<T>(items: readonly T[], rng: () => number): T[] {
+  const out = [...items];
+
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = out[i];
+
+    out[i] = out[j];
+    out[j] = tmp;
+  }
+
+  return out;
+}
+
+const CAST_ROLES_POOL: readonly VillagerRoleKey[] = [
+  'builder',
+  'baker',
+  'blacksmith',
+  'lumberjack',
+  'farmer',
+  'rancher',
+  'miller',
+  'angler',
+  'landlord',
+  'police',
+  'criminal',
+  'cultist',
+  'unemployed',
+  'citizen',
+  'miner',
 ];
+
+const NON_MAYOR_ARCHETYPES: readonly VillagerArchetype[] = [
+  'Frugal Saver',
+  'Ambitious Entrepreneur',
+  'Property Landlord',
+  'Winter Prepper',
+  'Community Artisan',
+  'Civic Protector',
+  'Opportunist Outlaw',
+  'Frost Zealot',
+  'Hopeful Drifter',
+];
+
+const ALL_STREET_NODES: readonly StreetNodeId[] = [
+  'civic_plaza',
+  'lake_north_center',
+  'lake_nw',
+  'lake_ne',
+  'west_sawmill',
+  'west_builder',
+  'west_main',
+  'west_blacksmith',
+  'plaza_west',
+  'plaza_north',
+  'plaza_east',
+  'plaza_south',
+  'east_harbor',
+  'east_smokehouse',
+  'east_main',
+  'east_cottage',
+  'east_ranch',
+  'south_farm_mid',
+  'south_farm_end',
+];
+
+const HOME_LABELS_POOL: readonly string[] = [
+  'NW Citizen Cottage',
+  'SW Citizen Cottage',
+  'East Village Cottage',
+  'Frost Pier Cabin',
+  'Forge Loft',
+  'Bank Upper Flat',
+  'Cozy Bakery Loft',
+  'Pine Ridge Hideout',
+  'Plaza Corner Flat',
+  'Windmill Loft',
+  'Yak Barn Bunkhouse',
+  'Plaza Well Bench',
+];
+
+const HOUSING_STATUS_POOL: readonly VillagerHousingStatus[] = [
+  'Homeowner',
+  'Tenant',
+  'Business Owner',
+  'Landlord',
+  'Public Servant',
+  'Undercover Squatter',
+  'Communal Co-Owner',
+  'Unhoused Transient',
+];
+
+const ITEM_POOL: readonly string[] = [
+  'Firewood',
+  'Warm Bread',
+  'Pine Planks',
+  'Iron Nails',
+  'Frost Trout',
+  'Smoked Fish',
+  'Alpine Cheese',
+  'Yak Milk',
+  'Wheat Flour',
+  'Fish Stew',
+  'Steel Axe',
+  'Pine Seeds',
+  'Ice Relic',
+];
+
+const WORKPLACE_BY_ROLE: Record<VillagerRoleKey, string> = {
+  hero: 'Yeti Lodge',
+  mayor: 'Town Hall & Treasury',
+  citizen: 'Market Plaza',
+  builder: 'Builder Workshop',
+  baker: 'Cozy Bakery',
+  blacksmith: 'Yeti Blacksmith',
+  lumberjack: 'Cozy Sawmill',
+  farmer: 'South Farmland',
+  rancher: 'Yak Barn & Creamery',
+  miller: 'Windmill Cottage',
+  angler: 'Lakeside Fishing Pier',
+  banker: 'Town Bank & Treasury',
+  landlord: 'Rental Cottages',
+  police: 'Town Watch Patrol',
+  criminal: 'Unregistered Alleyways',
+  cultist: 'Order of the Eternal Frost',
+  unemployed: 'Odd Jobs & Hauling',
+  miner: 'Echo Caves Mine',
+  shieldguard: 'Watch Garrison',
+  archer: 'Perimeter Watchtower',
+  apothecary: 'Frost Apothecary',
+  ram: 'Ram Pasture & Wool Mill',
+};
+
+const WILD_THOUGHTS: Readonly<Record<NpcAmbitionDrive, readonly string[]>> = {
+  RUTHLESS_WEALTH: [
+    'Coin is king—everyone sleeps warm except the fools who give discounts.',
+    'Wait until Winter hits 2x prices… I will quadruple my stall markups!',
+    'Time to borrow cheap from the Bank and buyout half the town firewood.',
+    'Whoever leaves coin unvaulted tonight is donating to my empire.',
+    'No favors, no charity—just fat margins and cornered markets.',
+  ],
+  MAYOR_ASPIRANT: [
+    'Wait till the Summer ballot—I am taking Town Hall and nobody can stop me!',
+    'Smiles by the Stone Well today, total control of tax policy next Summer!',
+    'I will cut backroom deals with every guild until the Mayor crown is mine.',
+    'This valley is tired of weak leadership—vote for real power next Summer!',
+    'Every loaf I praise and every rival I smear brings me closer to Town Hall.',
+  ],
+  NONE: [
+    'Hoping to save up for a warm cottage and start a cozy family someday.',
+    'Happily single and devoted to the Frost Cult—the Great Spire guides my steps.',
+    'Just want to contribute to society and help neighbors stay warm this Winter.',
+    'Good stew by the Bakery and honest craft are all a Yeti really needs.',
+    'Nothing fancy—peaceful days, sturdy tools, and looking out for the town.',
+    'Watching fresh snow fall over the valley and feeling grateful for community.',
+  ],
+};
+
+const WILD_ACTIVITIES: Readonly<Record<NpcAmbitionDrive, readonly string[]>> = {
+  RUTHLESS_WEALTH: [
+    'Scouting scarce goods to hoard before Winter spikes',
+    'Auditing high-margin swap leads across the Plaza',
+    'Eyeing unguarded crates & steep arbitrage spreads',
+  ],
+  MAYOR_ASPIRANT: [
+    'Working the Plaza crowd for Summer ballot pledges',
+    'Lobbying guild leaders near Town Hall steps',
+    'Sizing up rival contenders & gathering campaign coin',
+  ],
+  NONE: [
+    'Helping neighbors haul firewood & supplies',
+    'Reflecting quietly near the Frost Shrine',
+    'Tending honest daily shift duties & checking on friends',
+    'Strolling the plaza and daydreaming about a cozy family home',
+  ],
+};
+
+function buildRandomInventory(rng: () => number): VillagerInventoryItem[] {
+  const itemCount = 1 + Math.floor(rng() * 3);
+  const picked = shuffleWithPrng(ITEM_POOL, rng).slice(0, itemCount);
+  const out: VillagerInventoryItem[] = [];
+
+  for (let i = 0; i < picked.length; i += 1) {
+    out.push({
+      item: picked[i],
+      qty: 1 + Math.floor(rng() * 14),
+    });
+  }
+
+  return out;
+}
+
+function buildRandomizedProfile(input: {
+  readonly id: string;
+  readonly slotIndex: number;
+  readonly role: VillagerRoleKey;
+  readonly seedKey: string;
+  readonly rng: () => number;
+  readonly usedNames: Set<string>;
+  readonly forcedDrive?: NpcAmbitionDrive;
+  readonly homeLabelOverride?: string;
+}): TownVillagerProfile {
+  const { id, slotIndex, role, seedKey, rng, usedNames, forcedDrive } = input;
+  const generatedName = generateUniqueNpcName(`${seedKey}:slot:${slotIndex}`, usedNames);
+
+  const drive: NpcAmbitionDrive =
+    forcedDrive ??
+    (() => {
+      const roll = rng();
+
+      if (roll < 0.1) {
+        return 'MAYOR_ASPIRANT';
+      }
+
+      if (roll < 0.22) {
+        return 'RUTHLESS_WEALTH';
+      }
+
+      return 'NONE';
+    })();
+
+  const ambitionLevel =
+    drive === 'NONE'
+      ? 14 + Math.floor(rng() * 58)
+      : 76 + Math.floor(rng() * 24);
+
+  const campaignSupportPct =
+    drive === 'MAYOR_ASPIRANT' ? 8 + Math.floor(rng() * 36) : 0;
+
+  const archetype: VillagerArchetype =
+    drive === 'MAYOR_ASPIRANT'
+      ? 'Mayor Contender'
+      : drive === 'RUTHLESS_WEALTH'
+        ? 'Ruthless Profiteer'
+        : pickFrom(NON_MAYOR_ARCHETYPES, rng);
+
+  const housingStatus =
+    role === 'banker'
+      ? 'Business Owner'
+      : role === 'police'
+        ? 'Public Servant'
+        : pickFrom(HOUSING_STATUS_POOL, rng);
+
+  const coins = 35 + Math.floor(rng() * 900);
+  const startNode = pickFrom(ALL_STREET_NODES, rng);
+  const preferredNodes = shuffleWithPrng(ALL_STREET_NODES, rng).slice(0, 4);
+
+  if (!preferredNodes.includes(startNode)) {
+    preferredNodes[0] = startNode;
+  }
+
+  const rentSummary =
+    drive === 'RUTHLESS_WEALTH'
+      ? `Profiteer (${ambitionLevel}/100) · Hoards coin`
+      : drive === 'MAYOR_ASPIRANT'
+        ? `Contender (${campaignSupportPct}% vote share) · Seeks Town Hall`
+        : `${housingStatus} · ${coins} FC reserve`;
+
+  return {
+    id,
+    name: generatedName,
+    role,
+    roleRow: VILLAGER_ROLE_ROW[role],
+    isHero: false,
+    archetype,
+    ambitionDrive: drive,
+    ambitionLevel,
+    campaignSupportPct,
+    housingStatus,
+    homeLabel: input.homeLabelOverride ?? pickFrom(HOME_LABELS_POOL, rng),
+    workplaceLabel: WORKPLACE_BY_ROLE[role],
+    coins,
+    rentSummary,
+    activity: pickFrom(WILD_ACTIVITIES[drive], rng),
+    thought: pickFrom(WILD_THOUGHTS[drive], rng),
+    inventory: buildRandomInventory(rng),
+    preferredNodes,
+    speedPxPerSec: 58 + Math.floor(rng() * 30),
+    startNode,
+    laneOffsetX: Math.round((rng() - 0.5) * 28),
+    laneOffsetY: Math.round((rng() - 0.5) * 20),
+    phaseSeed: Number((1.1 + slotIndex * 0.77 + rng() * 3.5).toFixed(2)),
+  };
+}
+
+/**
+ * Generates an unpredictable, randomized 18-citizen starting town cast powered
+ * by `unique-names-generator`, guaranteeing varied roles, wild personalities,
+ * over-ambitious Wealth/Mayor schemers, and zero static boilerplate profiles.
+ */
+export function createRandomizedTownCast(
+  seedKey = `cast:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+  count = 18
+): TownVillagerProfile[] {
+  const rng = createMulberryPrng(seedKey);
+  const usedNames = new Set<string>();
+  const bankerSlot = Math.floor(rng() * count);
+  const shuffledRoles = shuffleWithPrng(CAST_ROLES_POOL, rng);
+  const cast: TownVillagerProfile[] = [];
+
+  for (let i = 0; i < count; i += 1) {
+    const role: VillagerRoleKey =
+      i === bankerSlot ? 'banker' : shuffledRoles[i % shuffledRoles.length];
+
+    cast.push(
+      buildRandomizedProfile({
+        id: `vil_${i + 1}`,
+        slotIndex: i,
+        role,
+        seedKey,
+        rng,
+        usedNames,
+      })
+    );
+  }
+
+  return cast;
+}
+
+export const TOWN_VILLAGERS: readonly TownVillagerProfile[] =
+  createRandomizedTownCast(
+    `boot:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 8)}`
+  );
 
 export function computeFacingDir(dx: number, dy: number, fallbackDir: number): number {
   const absX = Math.abs(dx);
@@ -970,6 +779,16 @@ function pointToSegmentDistSq(
   return (px - projX) * (px - projX) + (py - projY) * (py - projY);
 }
 
+function isVillagerLakeExclusionTile(tx: number, ty: number): boolean {
+  if (isLakeTile(tx, ty)) {
+    return true;
+  }
+
+  // 1-tile shoreline safety margin around VALLEY_LAKE_ZONE (tx 108..115, ty 192..195)
+  // so villager feet and lane offsets never touch water or shoreline rocks.
+  return tx >= 107 && tx <= 116 && ty >= 191 && ty <= 196;
+}
+
 /**
  * Builds a live tile-level walkability & cost grid from current buildings,
  * Shovel paths, Hoe farm soil, and planted crops.
@@ -991,7 +810,7 @@ export function buildValleyNavGrid(
       const cx = VALLEY_BORDER_X + (tx + 0.5) * VALLEY_TILE_PX;
       const idx = navIndex(tx, ty);
 
-      if (isLakeTile(tx, ty) || isPlazaWellTile(tx, ty)) {
+      if (isVillagerLakeExclusionTile(tx, ty) || isPlazaWellTile(tx, ty)) {
         costs[idx] = COST_BLOCKED;
         continue;
       }
@@ -1067,7 +886,7 @@ export function buildValleyNavGrid(
 
     if (
       isInNavBounds(door.tileX, door.tileY) &&
-      !isLakeTile(door.tileX, door.tileY) &&
+      !isVillagerLakeExclusionTile(door.tileX, door.tileY) &&
       !isPlazaWellTile(door.tileX, door.tileY)
     ) {
       const idx = navIndex(door.tileX, door.tileY);
@@ -1383,14 +1202,75 @@ function computeSegmentDurationMs(
   return Math.max(450, Math.round((dist / effectiveSpeed) * 1000));
 }
 
+export const MAX_TOWN_VILLAGERS = 64;
+
+/**
+ * Generates the live citizen roster tied directly to residential building count:
+ * Every residential Cottage built beyond the 4 starter homes brings +4 new citizens into town,
+ * each with randomized personality, coins, ambition, and `unique-names-generator` name.
+ */
+export function buildResidentialTownVillagers(
+  residentialBuildingCount: number,
+  starterResidentialCount: number,
+  residentsPerBuilding: number,
+  resolveProfile?: (v: TownVillagerProfile) => TownVillagerProfile,
+  starterCast: readonly TownVillagerProfile[] = TOWN_VILLAGERS,
+  seedKey = 'expansion'
+): TownVillagerProfile[] {
+  const extraBuildings = Math.max(
+    0,
+    residentialBuildingCount - starterResidentialCount
+  );
+
+  const extraCount = Math.min(
+    MAX_TOWN_VILLAGERS - starterCast.length,
+    extraBuildings * residentsPerBuilding
+  );
+
+  const out: TownVillagerProfile[] = [];
+  const usedNames = new Set<string>();
+
+  for (let i = 0; i < starterCast.length; i += 1) {
+    const base = starterCast[i];
+    const resolved = resolveProfile !== undefined ? resolveProfile(base) : base;
+
+    usedNames.add(resolved.name.toLowerCase());
+    out.push(resolved);
+  }
+
+  const rng = createMulberryPrng(`${seedKey}:res:${residentialBuildingCount}`);
+
+  for (let i = 0; i < extraCount; i += 1) {
+    const role = pickFrom(CAST_ROLES_POOL, rng);
+    const cottageNum = Math.floor(i / residentsPerBuilding) + 1;
+
+    const settlerBase = buildRandomizedProfile({
+      id: `vil_res_${i + 1}`,
+      slotIndex: starterCast.length + i,
+      role,
+      seedKey: `${seedKey}:res`,
+      rng,
+      usedNames,
+      homeLabelOverride: `New Cottage #${cottageNum}`,
+    });
+
+    out.push(
+      resolveProfile !== undefined ? resolveProfile(settlerBase) : settlerBase
+    );
+  }
+
+  return out;
+}
+
 export function createInitialVillagerRoutes(
   buildings: readonly StoredValleyBuilding[],
-  navGrid: ValleyNavGrid
+  navGrid: ValleyNavGrid,
+  villagers: readonly TownVillagerProfile[] = TOWN_VILLAGERS
 ): VillagerRouteSegment[] {
   const routes: VillagerRouteSegment[] = [];
 
-  for (let i = 0; i < TOWN_VILLAGERS.length; i += 1) {
-    const profile = TOWN_VILLAGERS[i];
+  for (let i = 0; i < villagers.length; i += 1) {
+    const profile = villagers[i];
     const startWp = TOWN_STREET_NODES[profile.startNode];
 
     const startTile = findNearestWalkableTile(
@@ -1454,9 +1334,10 @@ export function advanceVillagerRoute(
   nowClockMs: number,
   stepCounter: number,
   buildings: readonly StoredValleyBuilding[],
-  navGrid: ValleyNavGrid
+  navGrid: ValleyNavGrid,
+  villagers: readonly TownVillagerProfile[] = TOWN_VILLAGERS
 ): VillagerRouteSegment {
-  const profile = TOWN_VILLAGERS[seg.villagerIndex];
+  const profile = villagers[seg.villagerIndex] ?? TOWN_VILLAGERS[0];
   const arrivedTile = seg.targetTile;
 
   // Still walking along a multi-hop A* path? Advance to next corner (re-checking collision!)
@@ -1593,7 +1474,8 @@ export function rerouteBlockedVillagers(
   buildings: readonly StoredValleyBuilding[],
   navGrid: ValleyNavGrid,
   nowClockMs: number,
-  stepCounter: number
+  stepCounter: number,
+  villagers: readonly TownVillagerProfile[] = TOWN_VILLAGERS
 ): VillagerRouteSegment[] {
   const next: VillagerRouteSegment[] = [];
 
@@ -1627,7 +1509,7 @@ export function rerouteBlockedVillagers(
     }
 
     const safeTile = findNearestWalkableTile(navGrid, curTile);
-    const profile = TOWN_VILLAGERS[seg.villagerIndex];
+    const profile = villagers[seg.villagerIndex] ?? TOWN_VILLAGERS[0];
 
     const dest = pickNextVillagerDestination(
       profile,
@@ -1677,12 +1559,14 @@ export function rerouteBlockedVillagers(
 }
 
 export function packVillagerRoutesToFlatBuffer(
-  routes: readonly VillagerRouteSegment[]
+  routes: readonly VillagerRouteSegment[],
+  villagers: readonly TownVillagerProfile[] = TOWN_VILLAGERS
 ): number[] {
   const out: number[] = [];
 
   for (let i = 0; i < routes.length; i += 1) {
     const r = routes[i];
+    const profile = villagers[r.villagerIndex];
 
     out.push(
       r.roleRow,
@@ -1694,10 +1578,76 @@ export function packVillagerRoutesToFlatBuffer(
       r.arriveClockMs,
       r.facingDir,
       r.phaseSeed,
-      TOWN_VILLAGERS[r.villagerIndex].isHero ? 1 : 0,
+      profile !== undefined && profile.isHero ? 1 : 0,
       r.isIndoors ? 1 : 0
     );
   }
 
   return out;
+}
+
+/**
+ * Routes a live WebSocket `NPC_INTENT` strictly along the A* `ValleyNavGrid`
+ * so remote server intents walk around the lake and buildings instead of cutting across water.
+ */
+export function routeVillagerToNodeWithAStar(
+  prev: VillagerRouteSegment,
+  targetNodeId: StreetNodeId,
+  isIndoors: boolean,
+  navGrid: ValleyNavGrid,
+  nowClockMs: number,
+  villagers: readonly TownVillagerProfile[] = TOWN_VILLAGERS
+): VillagerRouteSegment {
+  const profile = villagers[prev.villagerIndex] ?? TOWN_VILLAGERS[0];
+  const prevDur = prev.arriveClockMs - prev.departClockMs;
+
+  const progress =
+    prevDur > 1
+      ? Math.max(0, Math.min(1, (nowClockMs - prev.departClockMs) / prevDur))
+      : 1;
+
+  const curX = prev.fromX + (prev.toX - prev.fromX) * progress;
+  const curY = prev.fromY + (prev.toY - prev.fromY) * progress;
+  const startTile = findNearestWalkableTile(navGrid, worldToTile(curX, curY));
+  const destNode = TOWN_STREET_NODES[targetNodeId];
+
+  const goalTile = findNearestWalkableTile(
+    navGrid,
+    worldToTile(destNode.x, destNode.y)
+  );
+
+  const path = findNavTilePath(navGrid, startTile, goalTile);
+  const firstTile = path.length > 0 ? path[0] : startTile;
+  const safeFromX = tileCenterX(startTile.tileX) + profile.laneOffsetX * 0.35;
+  const safeFromY = tileCenterY(startTile.tileY) + profile.laneOffsetY * 0.35;
+  const toX = tileCenterX(firstTile.tileX) + profile.laneOffsetX * 0.35;
+  const toY = tileCenterY(firstTile.tileY) + profile.laneOffsetY * 0.35;
+
+  const legDurationMs = computeSegmentDurationMs(
+    safeFromX,
+    safeFromY,
+    toX,
+    toY,
+    profile.speedPxPerSec,
+    navGrid,
+    firstTile
+  );
+
+  return {
+    ...prev,
+    currentTile: startTile,
+    targetTile: firstTile,
+    tileQueue: path.slice(1),
+    destinationLabel: destNode.label,
+    enterBuildingId: null,
+    isIndoors,
+    fromX: safeFromX,
+    fromY: safeFromY,
+    toX,
+    toY,
+    departClockMs: nowClockMs,
+    arriveClockMs: nowClockMs + legDurationMs,
+    pauseUntilClockMs: nowClockMs + legDurationMs,
+    facingDir: computeFacingDir(toX - safeFromX, toY - safeFromY, prev.facingDir),
+  };
 }

@@ -63,14 +63,13 @@ interface HeroPouchHudProps {
   readonly heldTool: HeldTool;
   readonly citizenCount: number;
   readonly buildingCount: number;
-  readonly walletShortAddress: string | null;
-  readonly liveConnected: boolean;
   readonly visible: boolean;
   readonly onSelectHeldTool: (tool: HeldTool) => void;
   readonly onCraftRecipe: (recipeId: string) => void;
   readonly onSellItem: (itemId: GameIconKey) => void;
   readonly onBuySeed: (seedItemId: GameIconKey) => void;
   readonly onOpenTownHall: (tab: TownHallTab) => void;
+  readonly onOpenBank: () => void;
   readonly onOpenWalletSettings: () => void;
 }
 
@@ -248,14 +247,13 @@ export function HeroPouchHud({
   heldTool,
   citizenCount,
   buildingCount,
-  walletShortAddress,
-  liveConnected,
   visible,
   onSelectHeldTool,
   onCraftRecipe,
   onSellItem,
   onBuySeed,
   onOpenTownHall,
+  onOpenBank,
   onOpenWalletSettings,
 }: HeroPouchHudProps) {
   const [activeModal, setActiveModal] = useState<ActiveModal>('NONE');
@@ -297,31 +295,6 @@ export function HeroPouchHud({
 
   return (
     <>
-      {/* Top-Right Compact Settings & Sui Wallet Pill */}
-      <View style={styles.topRightSettingsWrap} pointerEvents="box-none">
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel="Open Sui Wallet and Settings"
-          onPress={() => {
-            setToolDrawerOpen(false);
-            onOpenWalletSettings();
-          }}
-          style={styles.walletSettingsPill}
-        >
-          <View
-            style={[
-              styles.walletLiveDot,
-              liveConnected
-                ? styles.walletLiveDotOnline
-                : styles.walletLiveDotOffline,
-            ]}
-          />
-          <Text style={styles.walletSettingsText}>
-            {walletShortAddress !== null ? walletShortAddress : 'Wallet'} · ⚙
-          </Text>
-        </Pressable>
-      </View>
-
       {/* Wooden Quick-Equip Tool & Seed Drawer popped open beside the Held-Item Floater */}
       {toolDrawerOpen && (
         <View style={styles.toolDrawerWrap} pointerEvents="box-none">
@@ -696,18 +669,28 @@ export function HeroPouchHud({
                 </Pressable>
               </View>
 
-              <Pressable
-                onPress={() => {
-                  setActiveModal('NONE');
-                  onOpenWalletSettings();
-                }}
-                style={styles.walletProfileBtn}
-              >
-                <Text style={styles.walletProfileBtnText}>
-                  ⚙ Settings · Sui Wallet (
-                  {walletShortAddress !== null ? walletShortAddress : 'Setup'})
-                </Text>
-              </Pressable>
+              <View style={styles.quickActionRow}>
+                <Pressable
+                  onPress={() => {
+                    setActiveModal('NONE');
+                    onOpenBank();
+                  }}
+                  style={styles.walletProfileBtn}
+                >
+                  <Text style={styles.walletProfileBtnText}>
+                    Valley Bank & Credit
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setActiveModal('NONE');
+                    onOpenWalletSettings();
+                  }}
+                  style={styles.walletProfileBtn}
+                >
+                  <Text style={styles.walletProfileBtnText}>⚙ Settings</Text>
+                </Pressable>
+              </View>
             </ScrollView>
           </View>
         </View>
@@ -1491,40 +1474,8 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: '800',
   },
-  topRightSettingsWrap: {
-    position: 'absolute',
-    top: 44,
-    right: 14,
-  },
-  walletSettingsPill: {
-    minHeight: 40,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 7,
-    backgroundColor: WOOD_THEME.dockBg,
-    borderWidth: 2,
-    borderColor: WOOD_THEME.dockBorder,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  walletLiveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 999,
-  },
-  walletLiveDotOnline: {
-    backgroundColor: '#22C55E',
-  },
-  walletLiveDotOffline: {
-    backgroundColor: '#F59E0B',
-  },
-  walletSettingsText: {
-    color: WOOD_THEME.inkOnDark,
-    fontSize: 11.5,
-    fontWeight: '800',
-  },
   walletProfileBtn: {
+    flex: 1,
     minHeight: 44,
     backgroundColor: WOOD_THEME.ctaWoodSoftBg,
     borderWidth: 1.5,
@@ -1532,7 +1483,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
   },
   walletProfileBtnText: {
     color: WOOD_THEME.inkPrimary,

@@ -1,18 +1,50 @@
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Canvas,
+  Image as SkiaImage,
+  Skia,
+  type SkImage,
+  useImage,
+} from '@shopify/react-native-skia';
+import { useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { WOOD_THEME } from '@/components/town/wood-theme';
-import type { TownVillagerProfile } from '@/game/town-villagers';
-import { VILLAGER_ROLE_LABEL, type VillagerRoleKey } from '@/game/villager-atlas';
+import {
+  loadVillagerCreditReport,
+  loadVillagerWalletCoins,
+} from '@/game/credit-bank';
+import { getEconomyItem } from '@/game/economy-engine';
+import {
+  type GameIconKey,
+  ICON_ATLAS_FRAMES,
+  ICON_ATLAS_HEIGHT,
+  ICON_ATLAS_WIDTH,
+  ICON_CELL_SIZE,
+} from '@/game/icon-atlas';
+import type {
+  TownVillagerProfile,
+  VillagerInventoryItem,
+} from '@/game/town-villagers';
+import {
+  VILLAGER_ATLAS_HEIGHT,
+  VILLAGER_ATLAS_WIDTH,
+  VILLAGER_CELL_SIZE,
+  VILLAGER_ROLE_LABEL,
+  type VillagerRoleKey,
+} from '@/game/villager-atlas';
 import type { LiveVillagerOverlay } from '@/lib/anvil-live-sync';
 
 interface VillagerFocusCardProps {
   readonly villager: TownVillagerProfile;
   readonly currentLocationLabel: string;
   readonly liveOverlay?: LiveVillagerOverlay;
-  readonly isGeneratingPersona?: boolean;
-  readonly onGenerateAiPersona?: () => void;
+  readonly inventoryItems: readonly VillagerInventoryItem[];
+  readonly onOpenChat: () => void;
+  readonly onOpenBank?: () => void;
   readonly onClose: () => void;
 }
+
+type CardViewMode = 'PROFILE' | 'POUCH';
 
 function getRoleAccentColor(role: VillagerRoleKey): string {
   switch (role) {
@@ -37,128 +69,400 @@ function getRoleAccentColor(role: VillagerRoleKey): string {
   }
 }
 
+function getCleanRoleTitle(role: VillagerRoleKey): string {
+  if (role === 'mayor') {
+    return 'Town Mayor';
+  }
+
+  return VILLAGER_ROLE_LABEL[role];
+}
+
+export function resolveVillagerItemIcon(label: string): GameIconKey {
+  const clean = label.trim().toLowerCase();
+
+  switch (clean) {
+    case 'fish stew':
+    case 'hot fish stew':
+      return 'fishStew';
+    case 'smoked fish':
+      return 'smokedFish';
+    case 'firewood':
+    case 'split firewood':
+      return 'firewood';
+    case 'pine log':
+    case 'pine logs':
+      return 'pineLog';
+    case 'pine planks':
+      return 'pinePlanks';
+    case 'lake trout':
+    case 'frost trout':
+      return 'lakeTrout';
+    case 'frost carp':
+      return 'frostCarp';
+    case 'snow turnip':
+      return 'snowTurnip';
+    case 'maize':
+    case 'maize cob':
+      return 'maizeCob';
+    case 'wheat':
+    case 'wheat sheaf':
+    case 'wheat sheaves':
+      return 'wheatSheaf';
+    case 'flour':
+    case 'wheat flour':
+    case 'flour sack':
+    case 'grain sack':
+      return 'flourSack';
+    case 'artisan bread':
+    case 'warm bread':
+    case 'crusty bread':
+    case 'stolen bread':
+    case 'bread':
+      return 'artisanBread';
+    case 'yak milk':
+      return 'yakMilk';
+    case 'alpine cheese':
+      return 'alpineCheese';
+    case 'warmth tea':
+      return 'warmthTea';
+    case 'pine seeds':
+    case 'pinecone seed':
+      return 'seedPinecone';
+    case 'iron nails':
+      return 'ironNails';
+    case 'steel axe':
+      return 'battleAxe';
+    case 'mallet':
+      return 'builderHammer';
+    case 'tax decree':
+      return 'mayorCrown';
+    case 'blueprints':
+    case 'loan deeds':
+    case 'land deeds':
+      return 'ballotBox';
+    case 'gold ledger':
+      return 'goldIngot';
+    case 'house keys':
+      return 'forgeTongs';
+    case 'brass lantern':
+    case 'frost lantern':
+      return 'iceCrystal';
+    case 'watch whistle':
+      return 'rallyHorn';
+    case 'pilfered coins':
+      return 'frostCoin';
+    case 'ice relic':
+      return 'ancientRelic';
+    case 'travel bindle':
+      return 'founderPouch';
+    case 'raw stone':
+      return 'rawStone';
+    case 'coal chunk':
+      return 'coalChunk';
+    case 'copper ore':
+      return 'copperOre';
+    case 'iron ore':
+      return 'ironOre';
+    case 'iron ingot':
+      return 'ironIngot';
+    case 'silver ore':
+      return 'silverOre';
+    case 'gold ore':
+      return 'goldOre';
+    default:
+      return 'founderPouch';
+  }
+}
+
+function VillagerFaceAvatar({
+  atlas,
+  roleRow,
+  size,
+}: {
+  readonly atlas: SkImage | null;
+  readonly roleRow: number;
+  readonly size: number;
+}) {
+  if (atlas === null) {
+    return <View style={{ width: size, height: size }} />;
+  }
+
+  const scale = size / VILLAGER_CELL_SIZE;
+  const clipRect = Skia.XYWHRect(0, 0, size, size);
+
+  return (
+    <Canvas style={{ width: size, height: size }}>
+      <SkiaImage
+        image={atlas}
+        x={0}
+        y={-roleRow * VILLAGER_CELL_SIZE * scale}
+        width={VILLAGER_ATLAS_WIDTH * scale}
+        height={VILLAGER_ATLAS_HEIGHT * scale}
+        clip={clipRect}
+      />
+    </Canvas>
+  );
+}
+
+function PouchAtlasIcon({
+  atlas,
+  iconKey,
+  size,
+}: {
+  readonly atlas: SkImage | null;
+  readonly iconKey: GameIconKey;
+  readonly size: number;
+}) {
+  if (atlas === null) {
+    return <View style={{ width: size, height: size }} />;
+  }
+
+  const frame = ICON_ATLAS_FRAMES[iconKey];
+  const scale = size / ICON_CELL_SIZE;
+  const clipRect = Skia.XYWHRect(0, 0, size, size);
+
+  return (
+    <Canvas style={{ width: size, height: size }}>
+      <SkiaImage
+        image={atlas}
+        x={-frame.x * scale}
+        y={-frame.y * scale}
+        width={ICON_ATLAS_WIDTH * scale}
+        height={ICON_ATLAS_HEIGHT * scale}
+        clip={clipRect}
+      />
+    </Canvas>
+  );
+}
+
 export function VillagerFocusCard({
   villager,
   currentLocationLabel,
   liveOverlay,
-  isGeneratingPersona = false,
-  onGenerateAiPersona,
+  inventoryItems,
+  onOpenChat,
+  onOpenBank,
   onClose,
 }: VillagerFocusCardProps) {
+  const [viewMode, setViewMode] = useState<CardViewMode>('PROFILE');
+
+  const villagersAtlas = useImage(
+    require('@/assets/villager-asset/compiled/villagers-atlas.webp')
+  );
+
+  const iconsAtlas = useImage(
+    require('@/assets/resource-asset/compiled/icons-atlas.webp')
+  );
+
   const accentColor = getRoleAccentColor(villager.role);
-  const roleLabel = VILLAGER_ROLE_LABEL[villager.role];
-  const activeThought = liveOverlay?.thought ?? villager.thought;
-  const activeCoins = liveOverlay?.coinsAfter ?? villager.coins;
-  const activeActivity = liveOverlay?.actionType ?? villager.activity;
-  const persona = liveOverlay?.persona ?? null;
+  const cleanTitle = getCleanRoleTitle(villager.role);
+
+  const hasMatchingRolePersona =
+    liveOverlay?.persona !== null &&
+    liveOverlay?.persona !== undefined &&
+    liveOverlay.persona.role === villager.role;
+
+  const personalText =
+    hasMatchingRolePersona && liveOverlay?.persona !== null
+      ? liveOverlay.persona.backstory
+      : villager.thought;
+
+  const walletCoins = loadVillagerWalletCoins(
+    villager,
+    liveOverlay?.coinsAfter
+  );
+
+  const creditReport = loadVillagerCreditReport(
+    villager,
+    liveOverlay?.coinsAfter
+  );
 
   return (
     <View style={styles.container} pointerEvents="box-none">
       <View style={styles.card}>
-        <View style={styles.headerRow}>
-          <View style={styles.titleBlock}>
-            <View style={styles.nameRow}>
-              <Text style={styles.nameText} numberOfLines={1}>
-                {villager.name}
-              </Text>
-              <View style={[styles.roleBadge, { backgroundColor: accentColor }]}>
-                <Text style={styles.roleBadgeText}>{roleLabel}</Text>
+        {viewMode === 'PROFILE' ? (
+          <>
+            <View style={styles.headerRow}>
+              <View style={styles.avatarFrame}>
+                <VillagerFaceAvatar
+                  atlas={villagersAtlas}
+                  roleRow={villager.roleRow}
+                  size={52}
+                />
               </View>
-            </View>
-            <Text style={styles.subMeta} numberOfLines={1}>
-              {villager.archetype} · {villager.housingStatus}
-            </Text>
-          </View>
 
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Close citizen card"
-            onPress={onClose}
-            style={styles.closeBtn}
-            hitSlop={10}
-          >
-            <Text style={styles.closeBtnText}>✕</Text>
-          </Pressable>
-        </View>
-
-        {liveOverlay?.speech !== null && liveOverlay?.speech !== undefined && (
-          <View style={styles.speechBubble}>
-            <Text style={styles.speechText}>💬 “{liveOverlay.speech}”</Text>
-          </View>
-        )}
-
-        <View style={styles.thoughtBox}>
-          <Text style={styles.thoughtText}>“{activeThought}”</Text>
-        </View>
-
-        {persona !== null && (
-          <View style={styles.personaBox}>
-            <View style={styles.personaHeader}>
-              <Text style={styles.personaBadge}>
-                {persona.source === 'AI_GENERATED'
-                  ? `✨ AI PERSONA v${persona.version}`
-                  : '📜 SEED PERSONA'}
-              </Text>
-              <Text style={styles.personaStance}>{persona.politicalStance}</Text>
-            </View>
-            <Text style={styles.personaBackstory} numberOfLines={2}>
-              {persona.backstory}
-            </Text>
-            <Text style={styles.personaVoice} numberOfLines={1}>
-              Voice: {persona.voiceStyle}
-            </Text>
-          </View>
-        )}
-
-        <View style={styles.statsGrid}>
-          <View style={styles.statCell}>
-            <Text style={styles.statLabel}>WALLET</Text>
-            <Text style={styles.statValue}>{activeCoins} FC</Text>
-          </View>
-          <View style={styles.statCell}>
-            <Text style={styles.statLabel}>HOME</Text>
-            <Text style={styles.statValue} numberOfLines={1}>
-              {villager.homeLabel}
-            </Text>
-          </View>
-          <View style={styles.statCell}>
-            <Text style={styles.statLabel}>HEADING TO</Text>
-            <Text style={styles.statValue} numberOfLines={1}>
-              {currentLocationLabel}
-            </Text>
-          </View>
-        </View>
-
-        <Text style={styles.rentLine} numberOfLines={1}>
-          {villager.rentSummary} · {activeActivity}
-        </Text>
-
-        <View style={styles.footerRow}>
-          <View style={styles.inventoryRow}>
-            {villager.inventory.map((entry) => (
-              <View key={entry.item} style={styles.invPill}>
-                <Text style={styles.invPillText}>
-                  {entry.item} ×{entry.qty}
+              <View style={styles.titleBlock}>
+                <View style={styles.nameRow}>
+                  <Text style={styles.nameText} numberOfLines={1}>
+                    {villager.name}
+                  </Text>
+                  <View
+                    style={[styles.roleBadge, { backgroundColor: accentColor }]}
+                  >
+                    <Text style={styles.roleBadgeText}>{cleanTitle}</Text>
+                  </View>
+                </View>
+                <Text style={styles.subMeta} numberOfLines={1}>
+                  {villager.archetype}
                 </Text>
               </View>
-            ))}
-          </View>
 
-          {onGenerateAiPersona !== undefined && (
-            <Pressable
-              disabled={isGeneratingPersona}
-              onPress={onGenerateAiPersona}
-              style={[
-                styles.evolveBtn,
-                isGeneratingPersona && styles.evolveBtnDisabled,
-              ]}
-            >
-              <Text style={styles.evolveBtnText}>
-                {isGeneratingPersona ? 'Synthesizing…' : '✨ AI Persona'}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close citizen card"
+                onPress={onClose}
+                style={styles.closeBtn}
+                hitSlop={10}
+              >
+                <Text style={styles.closeBtnText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <Text style={styles.personalText} numberOfLines={2}>
+              {personalText}
+            </Text>
+
+            <View style={styles.statsGrid}>
+              <View style={styles.statCell}>
+                <Text style={styles.statLabel}>WALLET</Text>
+                <Text style={styles.statValue}>{walletCoins} FC</Text>
+              </View>
+              <View style={styles.statCell}>
+                <Text style={styles.statLabel}>HOME</Text>
+                <Text style={styles.statValue} numberOfLines={1}>
+                  {villager.homeLabel}
+                </Text>
+              </View>
+              <View style={styles.statCell}>
+                <Text style={styles.statLabel}>HEADING TO</Text>
+                <Text style={styles.statValue} numberOfLines={1}>
+                  {currentLocationLabel}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.actionRow}>
+              <Pressable
+                onPress={() => {
+                  setViewMode('POUCH');
+                }}
+                style={({ pressed }) => [
+                  styles.secondaryBtn,
+                  pressed && styles.btnPressed,
+                ]}
+              >
+                <Text style={styles.secondaryBtnText}>View Inventory</Text>
+              </Pressable>
+
+              {villager.role === 'banker' && onOpenBank !== undefined && (
+                <Pressable
+                  onPress={onOpenBank}
+                  style={({ pressed }) => [
+                    styles.bankBtn,
+                    pressed && styles.btnPressed,
+                  ]}
+                >
+                  <Text style={styles.primaryBtnText}>Bank</Text>
+                </Pressable>
+              )}
+
+              <Pressable
+                onPress={onOpenChat}
+                style={({ pressed }) => [
+                  styles.primaryBtn,
+                  pressed && styles.btnPressed,
+                ]}
+              >
+                <Text style={styles.primaryBtnText}>Chat</Text>
+              </Pressable>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.pouchHeader}>
+              <View style={styles.pouchTitleRow}>
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Back to citizen profile"
+                  onPress={() => {
+                    setViewMode('PROFILE');
+                  }}
+                  style={styles.backBtn}
+                  hitSlop={8}
+                >
+                  <Text style={styles.backBtnText}>←</Text>
+                </Pressable>
+                <PouchAtlasIcon
+                  atlas={iconsAtlas}
+                  iconKey="founderPouch"
+                  size={24}
+                />
+                <Text style={styles.pouchHeaderTitle} numberOfLines={1}>
+                  {villager.name}’s Pouch
+                </Text>
+                <View style={styles.coinMiniPill}>
+                  <Text style={styles.coinMiniText}>{walletCoins} FC</Text>
+                </View>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close NPC pouch"
+                onPress={onClose}
+                style={styles.closeBtn}
+                hitSlop={10}
+              >
+                <Text style={styles.closeBtnText}>✕</Text>
+              </Pressable>
+            </View>
+
+            <View style={styles.creditBanner}>
+              <Text style={styles.creditBannerText}>
+                Credit Score {creditReport.score} ({creditReport.tier}) · Saved{' '}
+                {creditReport.ledger.savingsFc} FC
               </Text>
-            </Pressable>
-          )}
-        </View>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              style={styles.pouchScrollFrame}
+              contentContainerStyle={styles.pouchScrollBody}
+            >
+              {inventoryItems.length === 0 ? (
+                <Text style={styles.emptyNotice}>
+                  {villager.name}’s pouch is currently empty.
+                </Text>
+              ) : (
+                inventoryItems.map((entry) => {
+                  const iconKey = resolveVillagerItemIcon(entry.item);
+                  const spec = getEconomyItem(iconKey);
+
+                  const subtitle =
+                    spec !== null && iconKey !== 'founderPouch'
+                      ? `Tier ${spec.tier} · Value ${spec.npcSellPrice} FC`
+                      : 'Personal Belonging';
+
+                  return (
+                    <View key={entry.item} style={styles.listRow}>
+                      <View style={styles.itemThumb}>
+                        <PouchAtlasIcon
+                          atlas={iconsAtlas}
+                          iconKey={iconKey}
+                          size={36}
+                        />
+                      </View>
+                      <View style={styles.flexOne}>
+                        <Text style={styles.rowTitle}>
+                          {entry.item} ×{entry.qty}
+                        </Text>
+                        <Text style={styles.rowSub}>{subtitle}</Text>
+                      </View>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </>
+        )}
       </View>
     </View>
   );
@@ -174,40 +478,49 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    maxWidth: 440,
+    maxWidth: 430,
     backgroundColor: WOOD_THEME.sheetBg,
-    borderRadius: 22,
+    borderRadius: 24,
     borderWidth: 3,
     borderColor: WOOD_THEME.sheetBorder,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 10,
+    padding: 15,
+    gap: 11,
     shadowColor: '#2E1A0B',
-    shadowOpacity: 0.28,
+    shadowOpacity: 0.26,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
     elevation: 8,
   },
   headerRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    gap: 10,
+    alignItems: 'center',
+    gap: 11,
+  },
+  avatarFrame: {
+    width: 56,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: WOOD_THEME.cardBg,
+    borderWidth: 1.5,
+    borderColor: WOOD_THEME.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
   },
   titleBlock: {
     flex: 1,
-    gap: 2,
+    gap: 3,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 7,
   },
   nameText: {
     color: WOOD_THEME.inkHeading,
     fontSize: 17,
-    fontWeight: '800',
+    fontWeight: '900',
   },
   roleBadge: {
     paddingHorizontal: 9,
@@ -225,102 +538,23 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   closeBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 36,
+    height: 36,
+    borderRadius: 11,
     backgroundColor: WOOD_THEME.closeBg,
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeBtnText: {
     color: '#FFFFFF',
-    fontSize: 13,
-    fontWeight: '800',
+    fontSize: 14,
+    fontWeight: '900',
   },
-  thoughtBox: {
-    backgroundColor: WOOD_THEME.cardBg,
-    borderLeftWidth: 3.5,
-    borderLeftColor: WOOD_THEME.sheetInnerBorder,
-    borderWidth: 1,
-    borderColor: WOOD_THEME.cardBorder,
-    borderRadius: 12,
-    paddingHorizontal: 11,
-    paddingVertical: 8,
-  },
-  thoughtText: {
+  personalText: {
     color: WOOD_THEME.inkPrimary,
     fontSize: 12.5,
-    fontStyle: 'italic',
+    lineHeight: 17.5,
     fontWeight: '500',
-  },
-  speechBubble: {
-    backgroundColor: '#FEF3C7',
-    borderWidth: 1.5,
-    borderColor: '#D97706',
-    borderRadius: 12,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-  },
-  speechText: {
-    color: WOOD_THEME.inkHeading,
-    fontSize: 12.5,
-    fontWeight: '800',
-  },
-  personaBox: {
-    backgroundColor: WOOD_THEME.cardBg,
-    borderWidth: 1,
-    borderColor: WOOD_THEME.cardBorder,
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    gap: 3,
-  },
-  personaHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  personaBadge: {
-    color: '#92400E',
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  personaStance: {
-    color: WOOD_THEME.inkSecondary,
-    fontSize: 10,
-    fontWeight: '700',
-  },
-  personaBackstory: {
-    color: WOOD_THEME.inkPrimary,
-    fontSize: 11.5,
-    fontWeight: '600',
-  },
-  personaVoice: {
-    color: WOOD_THEME.inkSecondary,
-    fontSize: 10.5,
-    fontStyle: 'italic',
-  },
-  footerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-  },
-  evolveBtn: {
-    backgroundColor: WOOD_THEME.ctaGoldBg,
-    borderWidth: 1.5,
-    borderColor: WOOD_THEME.ctaGoldBorder,
-    borderRadius: 999,
-    paddingHorizontal: 11,
-    paddingVertical: 5,
-  },
-  evolveBtnDisabled: {
-    opacity: 0.55,
-  },
-  evolveBtnText: {
-    color: WOOD_THEME.inkPrimary,
-    fontSize: 11,
-    fontWeight: '800',
   },
   statsGrid: {
     flexDirection: 'row',
@@ -333,7 +567,7 @@ const styles = StyleSheet.create({
     borderColor: WOOD_THEME.cardBorder,
     borderRadius: 12,
     paddingHorizontal: 9,
-    paddingVertical: 7,
+    paddingVertical: 8,
     gap: 2,
   },
   statLabel: {
@@ -347,27 +581,151 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     fontWeight: '800',
   },
-  rentLine: {
+  actionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  secondaryBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: WOOD_THEME.ctaWoodSoftBg,
+    borderWidth: 1.5,
+    borderColor: WOOD_THEME.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  secondaryBtnText: {
+    color: WOOD_THEME.inkPrimary,
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  bankBtn: {
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: '#0F766E',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  primaryBtn: {
+    flex: 1,
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: WOOD_THEME.ctaWoodBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  primaryBtnText: {
+    color: WOOD_THEME.inkOnDark,
+    fontSize: 12.5,
+    fontWeight: '800',
+  },
+  btnPressed: {
+    transform: [{ scale: 0.96 }],
+  },
+  pouchHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  pouchTitleRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  backBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: WOOD_THEME.ctaWoodSoftBg,
+    borderWidth: 1.5,
+    borderColor: WOOD_THEME.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backBtnText: {
+    color: WOOD_THEME.inkPrimary,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  pouchHeaderTitle: {
+    color: WOOD_THEME.inkHeading,
+    fontSize: 17,
+    fontWeight: '800',
+    flexShrink: 1,
+  },
+  coinMiniPill: {
+    backgroundColor: WOOD_THEME.badgeGoldBg,
+    borderRadius: 999,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.badgeGoldBorder,
+  },
+  coinMiniText: {
+    color: WOOD_THEME.badgeGoldText,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  creditBanner: {
+    backgroundColor: WOOD_THEME.sheetDeepBg,
+    borderRadius: 10,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+  },
+  creditBannerText: {
+    color: WOOD_THEME.inkSecondary,
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  pouchScrollFrame: {
+    maxHeight: 280,
+  },
+  pouchScrollBody: {
+    gap: 8,
+    paddingBottom: 2,
+  },
+  emptyNotice: {
+    color: WOOD_THEME.inkSecondary,
+    fontSize: 13,
+    textAlign: 'center',
+    paddingVertical: 16,
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: WOOD_THEME.cardBg,
+    borderRadius: 14,
+    padding: 9,
+    borderWidth: 1,
+    borderColor: WOOD_THEME.cardBorder,
+  },
+  itemThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: WOOD_THEME.cardMutedBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  flexOne: {
+    flex: 1,
+    gap: 2,
+  },
+  rowTitle: {
+    color: WOOD_THEME.inkPrimary,
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  rowSub: {
     color: WOOD_THEME.inkSecondary,
     fontSize: 11.5,
     fontWeight: '600',
-  },
-  inventoryRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  invPill: {
-    backgroundColor: WOOD_THEME.badgeGoldBg,
-    borderWidth: 1,
-    borderColor: WOOD_THEME.cardBorder,
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  invPillText: {
-    color: WOOD_THEME.badgeGoldText,
-    fontSize: 11,
-    fontWeight: '700',
   },
 });

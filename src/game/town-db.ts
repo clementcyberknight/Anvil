@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { useMMKVBoolean, useMMKVString } from 'react-native-mmkv';
 
 import {
   type CropKind,
@@ -76,7 +77,193 @@ const TOWN_KEYS = {
   yetiX: 'town.v4.yetiX',
   yetiY: 'town.v4.yetiY',
   seeded: 'town.seeded.v4',
+  townId: 'town.v6.townId',
+  townName: 'town.v6.name',
+  townSeed: 'town.v6.seed',
+  townStarted: 'town.v6.started',
+  cleanResetV6: 'town.v6.cleanResetDone',
+  officeHolderNpcId: 'town.v6.officeHolderNpcId',
+  officeHolderName: 'town.v6.officeHolderName',
 } as const;
+
+const LOCAL_TOWN_SQLITE_TABLES: readonly string[] = [
+  'town_trees',
+  'town_crops',
+  'town_buildings',
+  'town_ores',
+  'town_land_blocks',
+  'town_valley_trees',
+  'town_valley_buildings',
+  'town_valley_crops',
+  'town_valley_tiles',
+];
+
+function shouldClearLocalKeyOnReset(key: string): boolean {
+  if (key === TOWN_KEYS.cleanResetV6) {
+    return false;
+  }
+
+  return (
+    key.startsWith('town.') ||
+    key.startsWith('bank.') ||
+    key.startsWith('npc.') ||
+    key.startsWith('mp.v1.seq.') ||
+    key === 'mp.v1.outbox' ||
+    key === 'mp.v1.streamQueue' ||
+    key === 'mp.v1.visitingTownId' ||
+    key === 'mp.v1.homeTownId'
+  );
+}
+
+/**
+ * Wipes all local SQLite world entities and stale town/bank/sync MMKV keys,
+ * returning the local client to a clean pre-founding state.
+ */
+export function resetAllLocalTownData(): void {
+  const db = getTownDb();
+
+  db.withTransactionSync(() => {
+    for (let i = 0; i < LOCAL_TOWN_SQLITE_TABLES.length; i += 1) {
+      db.execSync(`DELETE FROM ${LOCAL_TOWN_SQLITE_TABLES[i]};`);
+    }
+  });
+
+  const keys = sessionStorage.getAllKeys();
+
+  for (let i = 0; i < keys.length; i += 1) {
+    const k = keys[i];
+
+    if (shouldClearLocalKeyOnReset(k)) {
+      sessionStorage.remove(k);
+    }
+  }
+
+  sessionStorage.set(TOWN_KEYS.townStarted, false);
+}
+
+/**
+ * Performs a one-time clean database wipe after upgrading to custom-named towns.
+ */
+export function ensureFreshLocalCleanStateOnce(): void {
+  const alreadyCleaned = sessionStorage.getBoolean(TOWN_KEYS.cleanResetV6) ?? false;
+
+  if (alreadyCleaned) {
+    return;
+  }
+
+  resetAllLocalTownData();
+  sessionStorage.set(TOWN_KEYS.cleanResetV6, true);
+}
+
+export function loadActiveHomeTownId(): string {
+  const saved = sessionStorage.getString(TOWN_KEYS.townId);
+
+  if (saved !== undefined && saved.trim().length > 0) {
+    return saved.trim();
+  }
+
+  const mpHome = sessionStorage.getString('mp.v1.homeTownId');
+
+  if (mpHome !== undefined && mpHome.trim().length > 0) {
+    return mpHome.trim();
+  }
+
+  return 'town_1';
+}
+
+export function loadTownName(): string {
+  const saved = sessionStorage.getString(TOWN_KEYS.townName);
+
+  if (saved !== undefined && saved.trim().length > 0) {
+    return saved.trim();
+  }
+
+  return 'New Anvil Town';
+}
+
+export function saveTownName(townName: string): void {
+  const clean = townName.trim().slice(0, 48);
+
+  if (clean.length === 0) {
+    return;
+  }
+
+  sessionStorage.set(TOWN_KEYS.townName, clean);
+}
+
+export function loadTownRosterSeed(): string {
+  const saved = sessionStorage.getString(TOWN_KEYS.townSeed);
+
+  if (saved !== undefined && saved.trim().length > 0) {
+    return saved.trim();
+  }
+
+  const freshSeed = `${loadActiveHomeTownId()}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
+  sessionStorage.set(TOWN_KEYS.townSeed, freshSeed);
+
+  return freshSeed;
+}
+
+export interface StartedTownResult {
+  readonly townId: string;
+  readonly townName: string;
+}
+
+/**
+ * Cleans stale local world data, assigns a fresh unique town ID + player-chosen name,
+ * seeds fresh starter entities, and marks the town started.
+ */
+export function startNamedTown(townName: string): StartedTownResult {
+  const cleanName = townName.trim().slice(0, 48) || 'Frosthaven';
+  resetAllLocalTownData();
+
+  const newTownId = `town_${Date.now().toString(36)}`;
+  const freshRosterSeed = `${newTownId}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
+
+  sessionStorage.set(TOWN_KEYS.cleanResetV6, true);
+  sessionStorage.set(TOWN_KEYS.townId, newTownId);
+  sessionStorage.set(TOWN_KEYS.townSeed, freshRosterSeed);
+  sessionStorage.set('mp.v1.homeTownId', newTownId);
+  sessionStorage.set('mp.v1.visitingTownId', newTownId);
+  sessionStorage.set(TOWN_KEYS.townName, cleanName);
+
+  ensureTownSeeded();
+  sessionStorage.set(TOWN_KEYS.townStarted, true);
+
+  return {
+    townId: newTownId,
+    townName: cleanName,
+  };
+}
+
+export function useTownSetupStatus() {
+  ensureFreshLocalCleanStateOnce();
+
+  const [storedStarted] = useMMKVBoolean(TOWN_KEYS.townStarted, sessionStorage);
+  const [storedName] = useMMKVString(TOWN_KEYS.townName, sessionStorage);
+  const [storedTownId] = useMMKVString(TOWN_KEYS.townId, sessionStorage);
+
+  const hasStartedTown = storedStarted ?? false;
+
+  const townName =
+    storedName !== undefined && storedName.trim().length > 0
+      ? storedName.trim()
+      : 'New Anvil Town';
+
+  const activeTownId =
+    storedTownId !== undefined && storedTownId.trim().length > 0
+      ? storedTownId.trim()
+      : 'town_1';
+
+  return {
+    hasStartedTown,
+    townName,
+    activeTownId,
+    foundTown: startNamedTown,
+    renameTown: saveTownName,
+    resetTown: resetAllLocalTownData,
+  };
+}
 
 const DEFAULT_INVENTORY: InventoryCounts = {
   coins: 200,
@@ -1146,6 +1333,8 @@ export function savePouchEntries(entries: readonly PouchEntry[]): void {
 
 function parseOfficeHolder(raw: string): OfficeHolder {
   switch (raw) {
+    case 'NPC_MAYOR':
+      return 'NPC_MAYOR';
     case 'AI_BARNABY':
       return 'AI_BARNABY';
     case 'AI_STERLING':
@@ -1210,6 +1399,11 @@ export function loadTownGovernance(): TownGovernanceState {
   const electionCount = Math.max(0, Math.round(Number(fields[8]) || 0));
   const bountyDone = fields[9] === '1';
 
+  const lastElectionCycle =
+    fields[11] !== undefined && fields[11].length > 0
+      ? Math.round(Number(fields[11]))
+      : -1;
+
   const warband: WarbandSlot[] = [];
   const wbRaw = fields[10] ?? '';
 
@@ -1227,8 +1421,27 @@ export function loadTownGovernance(): TownGovernanceState {
     }
   }
 
+  const storedNpcId = sessionStorage.getString(TOWN_KEYS.officeHolderNpcId);
+  const storedHolderName = sessionStorage.getString(TOWN_KEYS.officeHolderName);
+
+  const officeHolderNpcId =
+    officeHolder === 'PLAYER'
+      ? null
+      : storedNpcId !== undefined && storedNpcId.trim().length > 0
+        ? storedNpcId.trim()
+        : null;
+
+  const officeHolderName =
+    officeHolder === 'PLAYER'
+      ? 'Koda (You)'
+      : storedHolderName !== undefined && storedHolderName.trim().length > 0
+        ? storedHolderName.trim()
+        : fallback.officeHolderName;
+
   return {
     officeHolder,
+    officeHolderNpcId,
+    officeHolderName,
     taxRatePct,
     winterPolicy,
     townTreasuryFc,
@@ -1237,6 +1450,9 @@ export function loadTownGovernance(): TownGovernanceState {
     raidsWon,
     reliefDonations,
     electionCount,
+    lastElectionCycle: Number.isFinite(lastElectionCycle)
+      ? lastElectionCycle
+      : -1,
     warband: warband.length > 0 ? warband : fallback.warband,
     activeBounty: {
       ...fallback.activeBounty,
@@ -1268,7 +1484,16 @@ export function saveTownGovernance(state: TownGovernanceState): void {
     String(state.electionCount),
     state.activeBounty.completed ? '1' : '0',
     wbParts.join(','),
+    String(state.lastElectionCycle),
   ].join('|');
 
   sessionStorage.set(TOWN_KEYS.governanceState, encoded);
+
+  if (state.officeHolderNpcId) {
+    sessionStorage.set(TOWN_KEYS.officeHolderNpcId, state.officeHolderNpcId);
+  } else {
+    sessionStorage.remove(TOWN_KEYS.officeHolderNpcId);
+  }
+
+  sessionStorage.set(TOWN_KEYS.officeHolderName, state.officeHolderName);
 }

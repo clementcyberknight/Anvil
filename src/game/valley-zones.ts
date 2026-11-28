@@ -794,3 +794,81 @@ export function canPlaceBuildingOnBlock(
 
   return true;
 }
+
+export const STARTER_RESIDENTIAL_BUILDINGS = 4;
+export const RESIDENTS_PER_RESIDENTIAL_BUILDING = 4;
+export const RESIDENTIAL_COTTAGE_COST_FC = 50;
+
+export function isResidentialBuilding(spriteKey: TownBuildingSpriteKey): boolean {
+  return spriteKey === 'cottage' || spriteKey === 'yetiLodge';
+}
+
+export function countResidentialBuildings(
+  buildings: readonly ValleyBuildingPlacement[]
+): number {
+  let count = 0;
+
+  for (let i = 0; i < buildings.length; i += 1) {
+    if (isResidentialBuilding(buildings[i].spriteKey)) {
+      count += 1;
+    }
+  }
+
+  return count;
+}
+
+export function computeTownPopulationCap(
+  buildings: readonly ValleyBuildingPlacement[],
+  basePopulation: number
+): number {
+  const residentialCount = countResidentialBuildings(buildings);
+
+  const extraResidential = Math.max(
+    0,
+    residentialCount - STARTER_RESIDENTIAL_BUILDINGS
+  );
+
+  return basePopulation + extraResidential * RESIDENTS_PER_RESIDENTIAL_BUILDING;
+}
+
+/**
+ * Finds the nearest valid open block around the central village for a new residential Cottage.
+ */
+export function findOpenResidentialBlock(
+  buildings: readonly ValleyBuildingPlacement[]
+): { readonly blockX: number; readonly blockY: number } | null {
+  const candidates: readonly { readonly bx: number; readonly by: number }[] = [
+    { bx: 24, by: 47 },
+    { bx: 30, by: 47 },
+    { bx: 24, by: 48 },
+    { bx: 30, by: 48 },
+    { bx: 24, by: 49 },
+    { bx: 30, by: 49 },
+    { bx: 24, by: 50 },
+    { bx: 31, by: 50 },
+    { bx: 24, by: 51 },
+    { bx: 30, by: 51 },
+    { bx: 25, by: 52 },
+    { bx: 26, by: 52 },
+    { bx: 29, by: 52 },
+    { bx: 30, by: 52 },
+    { bx: 24, by: 52 },
+    { bx: 31, by: 51 },
+    { bx: 23, by: 48 },
+    { bx: 23, by: 49 },
+    { bx: 23, by: 50 },
+    { bx: 23, by: 51 },
+  ];
+
+  const probeId = '__new_cottage_probe__';
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const c = candidates[i];
+
+    if (canPlaceBuildingOnBlock(c.bx, c.by, buildings, probeId)) {
+      return { blockX: c.bx, blockY: c.by };
+    }
+  }
+
+  return null;
+}

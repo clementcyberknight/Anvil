@@ -50,11 +50,12 @@ import {
     advanceVillagerRoute,
     buildValleyNavGrid,
     createInitialVillagerRoutes,
+    MAX_TOWN_VILLAGERS,
     packVillagerRoutesToFlatBuffer,
     rerouteBlockedVillagers,
+    routeVillagerToNodeWithAStar,
     type StreetNodeId,
-    TOWN_STREET_NODES,
-    TOWN_VILLAGERS,
+    type TownVillagerProfile,
     type ValleyNavGrid,
     VILLAGER_BUFFER_STRIDE,
     type VillagerRouteSegment,
@@ -100,7 +101,6 @@ const INITIAL_SCALE = 0.54;
 const MAX_ZOOM_OUT_HORIZONTAL_BLOCKS = 10;
 const MAX_ZOOM = 1.9;
 const HYSTERESIS_MARGIN_BLOCKS = 2;
-const VILLAGER_COUNT = TOWN_VILLAGERS.length;
 
 // Adjusted for 92px cell size in expanded 22-role villagers-atlas.webp (~84px world height)
 const NPC_SPRITE_SCALE = 0.91;
@@ -167,6 +167,7 @@ interface TownMapCanvasProps {
   readonly season: Season;
   readonly nowMs: number;
   readonly buildings: readonly StoredValleyBuilding[];
+  readonly villagers: readonly TownVillagerProfile[];
   readonly editingBuilding: StoredValleyBuilding | null;
   readonly isEditPlacementValid: boolean;
   readonly valleyTiles: readonly StoredValleyTile[];
@@ -1117,6 +1118,7 @@ export function TownMapCanvas({
   season,
   nowMs,
   buildings,
+  villagers,
   editingBuilding,
   isEditPlacementValid,
   valleyTiles,
@@ -1195,9 +1197,10 @@ export function TownMapCanvas({
 
   const navGridRef = useRef<ValleyNavGrid>(navGrid);
   const buildingsRef = useRef<readonly StoredValleyBuilding[]>(buildings);
+  const villagersRef = useRef<readonly TownVillagerProfile[]>(villagers);
 
   const initialRoutes = useMemo(
-    () => createInitialVillagerRoutes(buildings, navGrid),
+    () => createInitialVillagerRoutes(buildings, navGrid, villagers),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -1207,7 +1210,7 @@ export function TownMapCanvas({
   const mountEpochMsRef = useRef<number>(0);
 
   const villagerRouteBuffer = useSharedValue<number[]>(
-    packVillagerRoutesToFlatBuffer(initialRoutes),
+    packVillagerRoutesToFlatBuffer(initialRoutes, villagers),
   );
 
   const focusedIdxShared = useSharedValue<number>(focusedVillagerIndex ?? -1);
@@ -1236,6 +1239,43 @@ export function TownMapCanvas({
     }
   }, [buildings, townHallBlockXShared, townHallBlockYShared]);
 
+  // Sync dynamic villagers (residential growth + single-Mayor role changes) into live routes & Skia buffer
+  useEffect(() => {
+    villagersRef.current = villagers;
+
+    let changed = false;
+    const current = routesRef.current;
+
+    if (villagers.length > current.length) {
+      const freshAll = createInitialVillagerRoutes(
+        buildingsRef.current,
+        navGridRef.current,
+        villagers,
+      );
+
+      for (let i = current.length; i < freshAll.length; i += 1) {
+        current.push(freshAll[i]);
+      }
+
+      changed = true;
+    }
+
+    const limit = Math.min(current.length, villagers.length);
+
+    for (let i = 0; i < limit; i += 1) {
+      if (current[i].roleRow !== villagers[i].roleRow) {
+        current[i] = { ...current[i], roleRow: villagers[i].roleRow };
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      villagerRouteBuffer.set(
+        packVillagerRoutesToFlatBuffer(current, villagers),
+      );
+    }
+  }, [villagers, villagerRouteBuffer]);
+
   // Sync live walkability grid & immediately re-route any villager blocked by a moved building
   useEffect(() => {
     navGridRef.current = navGrid;
@@ -1254,8 +1294,11 @@ export function TownMapCanvas({
       navGrid,
       nowClockMs,
       routeStepCounterRef.current,
+      villagersRef.current,
     );
-    villagerRouteBuffer.set(packVillagerRoutesToFlatBuffer(routesRef.current));
+    villagerRouteBuffer.set(
+      packVillagerRoutesToFlatBuffer(routesRef.current, villagersRef.current),
+    );
   }, [buildings, navGrid, villagerRouteBuffer]);
 
   // Zero-rerender imperative bridge: WebSocket `NPC_INTENT` updates Skia RSXform SharedValue directly!
@@ -1268,7 +1311,7 @@ export function TownMapCanvas({
       villagerIndex: number,
       targetNodeId: StreetNodeId,
       isIndoors: boolean,
-      durationMs: number,
+      _durationMs: number,
     ): void => {
       if (villagerIndex < 0 || villagerIndex >= routesRef.current.length) {
         return;
@@ -1280,45 +1323,19 @@ export function TownMapCanvas({
 
       const nowClockMs = Date.now() - mountEpochMsRef.current;
       const prev = routesRef.current[villagerIndex];
-      const prevDur = prev.arriveClockMs - prev.departClockMs;
 
-      const progress =
-        prevDur > 1
-          ? Math.max(0, Math.min(1, (nowClockMs - prev.departClockMs) / prevDur))
-          : 1;
-
-      const curX = prev.fromX + (prev.toX - prev.fromX) * progress;
-      const curY = prev.fromY + (prev.toY - prev.fromY) * progress;
-      const destNode = TOWN_STREET_NODES[targetNodeId];
-      const dx = destNode.x - curX;
-      const dy = destNode.y - curY;
-
-      const facingDir =
-        Math.abs(dx) >= Math.abs(dy)
-          ? dx >= 0
-            ? 1
-            : 3
-          : dy >= 0
-            ? 0
-            : 2;
-
-      const safeDur = Math.max(2400, Math.min(16_000, durationMs));
-
-      routesRef.current[villagerIndex] = {
-        ...prev,
-        destinationLabel: destNode.label,
+      routesRef.current[villagerIndex] = routeVillagerToNodeWithAStar(
+        prev,
+        targetNodeId,
         isIndoors,
-        fromX: curX,
-        fromY: curY,
-        toX: destNode.x,
-        toY: destNode.y,
-        departClockMs: nowClockMs,
-        arriveClockMs: nowClockMs + safeDur,
-        pauseUntilClockMs: nowClockMs + safeDur + 1200,
-        facingDir,
-      };
+        navGridRef.current,
+        nowClockMs,
+        villagersRef.current,
+      );
 
-      villagerRouteBuffer.set(packVillagerRoutesToFlatBuffer(routesRef.current));
+      villagerRouteBuffer.set(
+        packVillagerRoutesToFlatBuffer(routesRef.current, villagersRef.current),
+      );
     };
 
     return () => {
@@ -1356,6 +1373,7 @@ export function TownMapCanvas({
             routeStepCounterRef.current,
             buildingsRef.current,
             navGridRef.current,
+            villagersRef.current,
           );
           current[i] = seg;
           changed = true;
@@ -1367,7 +1385,9 @@ export function TownMapCanvas({
       }
 
       if (changed) {
-        villagerRouteBuffer.set(packVillagerRoutesToFlatBuffer(current));
+        villagerRouteBuffer.set(
+          packVillagerRoutesToFlatBuffer(current, villagersRef.current),
+        );
       }
 
       const delayMs = Number.isFinite(nextWakeupClockMs)
@@ -1388,10 +1408,17 @@ export function TownMapCanvas({
     };
   }, [villagerRouteBuffer]);
 
-  const villagerSprites = useRectBuffer(VILLAGER_COUNT, (rect, index) => {
+  const villagerSprites = useRectBuffer(MAX_TOWN_VILLAGERS, (rect, index) => {
     "worklet";
     const buf = villagerRouteBuffer.get();
     const base = index * VILLAGER_BUFFER_STRIDE;
+
+    if (base + 10 >= buf.length) {
+      rect.setXYWH(0, 0, 0, 0);
+
+      return;
+    }
+
     const roleRow = buf[base];
     const fromX = buf[base + 1];
     const fromY = buf[base + 2];
@@ -1426,67 +1453,78 @@ export function TownMapCanvas({
     rect.setXYWH(sx, sy, VILLAGER_CELL_SIZE, VILLAGER_CELL_SIZE);
   });
 
-  const villagerTransforms = useRSXformBuffer(VILLAGER_COUNT, (val, index) => {
-    "worklet";
-    const buf = villagerRouteBuffer.get();
-    const base = index * VILLAGER_BUFFER_STRIDE;
-    const isIndoors = buf[base + 10];
+  const villagerTransforms = useRSXformBuffer(
+    MAX_TOWN_VILLAGERS,
+    (val, index) => {
+      "worklet";
+      const buf = villagerRouteBuffer.get();
+      const base = index * VILLAGER_BUFFER_STRIDE;
 
-    // Villager entered a house: vanish cleanly inside until they step back out the door!
-    if (isIndoors === 1) {
-      val.set(0, 0, -9999, -9999);
+      if (base + 10 >= buf.length) {
+        val.set(0, 0, -9999, -9999);
 
-      return;
-    }
+        return;
+      }
 
-    const fromX = buf[base + 1];
-    const fromY = buf[base + 2];
-    const toX = buf[base + 3];
-    const toY = buf[base + 4];
-    const departMs = buf[base + 5];
-    const arriveMs = buf[base + 6];
-    const phaseSeed = buf[base + 8];
+      const isIndoors = buf[base + 10];
 
-    const nowClock = clock.get();
-    const duration = arriveMs - departMs;
+      // Villager entered a house: vanish cleanly inside until they step back out the door!
+      if (isIndoors === 1) {
+        val.set(0, 0, -9999, -9999);
 
-    const isMoving =
-      duration > 1 && nowClock >= departMs && nowClock < arriveMs;
+        return;
+      }
 
-    const t =
-      duration > 1
-        ? Math.max(0, Math.min(1, (nowClock - departMs) / duration))
-        : 1;
+      const fromX = buf[base + 1];
+      const fromY = buf[base + 2];
+      const toX = buf[base + 3];
+      const toY = buf[base + 4];
+      const departMs = buf[base + 5];
+      const arriveMs = buf[base + 6];
+      const phaseSeed = buf[base + 8];
 
-    const wx = fromX + (toX - fromX) * t;
-    const wy = fromY + (toY - fromY) * t;
+      const nowClock = clock.get();
+      const duration = arriveMs - departMs;
 
-    let bobY = 0;
+      const isMoving =
+        duration > 1 && nowClock >= departMs && nowClock < arriveMs;
 
-    if (isMoving) {
-      const dist = Math.hypot(toX - fromX, toY - fromY);
-      const stepPhase = (t * dist) / 22 + phaseSeed;
+      const t =
+        duration > 1
+          ? Math.max(0, Math.min(1, (nowClock - departMs) / duration))
+          : 1;
 
-      bobY = -Math.abs(Math.sin(stepPhase * Math.PI)) * 2.8;
-    }
+      const wx = fromX + (toX - fromX) * t;
+      const wy = fromY + (toY - fromY) * t;
 
-    const spriteScale = NPC_SPRITE_SCALE;
-    const tx = wx - VILLAGER_CELL_SIZE * VILLAGER_FEET_ANCHOR_X * spriteScale;
+      let bobY = 0;
 
-    const ty =
-      wy + bobY - VILLAGER_CELL_SIZE * VILLAGER_FEET_ANCHOR_Y * spriteScale;
+      if (isMoving) {
+        const dist = Math.hypot(toX - fromX, toY - fromY);
+        const stepPhase = (t * dist) / 22 + phaseSeed;
 
-    val.set(spriteScale, 0, tx, ty);
-  });
+        bobY = -Math.abs(Math.sin(stepPhase * Math.PI)) * 2.8;
+      }
+
+      const spriteScale = NPC_SPRITE_SCALE;
+      const tx = wx - VILLAGER_CELL_SIZE * VILLAGER_FEET_ANCHOR_X * spriteScale;
+
+      const ty =
+        wy + bobY - VILLAGER_CELL_SIZE * VILLAGER_FEET_ANCHOR_Y * spriteScale;
+
+      val.set(spriteScale, 0, tx, ty);
+    },
+  );
 
   const focusedRingRect = useDerivedValue(() => {
     const idx = focusedIdxShared.get();
+    const buf = villagerRouteBuffer.get();
+    const activeCount = Math.floor(buf.length / VILLAGER_BUFFER_STRIDE);
 
-    if (idx < 0 || idx >= VILLAGER_COUNT) {
+    if (idx < 0 || idx >= activeCount) {
       return Skia.XYWHRect(-9999, -9999, 0, 0);
     }
 
-    const buf = villagerRouteBuffer.get();
     const base = idx * VILLAGER_BUFFER_STRIDE;
 
     if (buf[base + 10] === 1) {
@@ -1798,7 +1836,9 @@ export function TownMapCanvas({
       let bestWx = 0;
       let bestWy = 0;
 
-      for (let i = 0; i < VILLAGER_COUNT; i += 1) {
+      const activeCount = Math.floor(buf.length / VILLAGER_BUFFER_STRIDE);
+
+      for (let i = 0; i < activeCount; i += 1) {
         const base = i * VILLAGER_BUFFER_STRIDE;
 
         if (buf[base + 10] === 1) {

@@ -28,6 +28,7 @@ import { RIVAL_TOWNS, type RivalTownBlueprint } from '@/game/raid-engine';
 import {
   ARMY_UNIT_SPECS,
   type ArmyUnitKey,
+  canHoldSummerElection,
   computeProjectedApproval,
   type ElectionBallotResult,
   getRaidCommandRules,
@@ -39,6 +40,10 @@ import {
   type WinterPolicy,
 } from '@/game/town-governance';
 import type { Season } from '@/game/types';
+import {
+  RESIDENTIAL_COTTAGE_COST_FC,
+  RESIDENTS_PER_RESIDENTIAL_BUILDING,
+} from '@/game/valley-zones';
 import {
   VILLAGER_ATLAS_HEIGHT,
   VILLAGER_ATLAS_WIDTH,
@@ -59,6 +64,10 @@ import {
 interface TownHallModalProps {
   readonly visible: boolean;
   readonly season: Season;
+  readonly seasonCycleNumber: number;
+  readonly residentialCount: number;
+  readonly populationCount: number;
+  readonly populationCap: number;
   readonly coins: number;
   readonly pouchEntries: readonly PouchEntry[];
   readonly governance: TownGovernanceState;
@@ -71,6 +80,7 @@ interface TownHallModalProps {
   readonly onClose: () => void;
   readonly onChangeTaxRate: (delta: number) => void;
   readonly onChangeWinterPolicy: (policy: WinterPolicy) => void;
+  readonly onBuildResidentialCottage: () => void;
   readonly onRunElection: () => void;
   readonly onDonateRelief: () => void;
   readonly onTrainUnit: (unitKey: ArmyUnitKey) => void;
@@ -162,6 +172,10 @@ function YetiPortrait({
 export function TownHallModal({
   visible,
   season,
+  seasonCycleNumber,
+  residentialCount,
+  populationCount,
+  populationCap,
   coins,
   pouchEntries,
   governance,
@@ -169,11 +183,10 @@ export function TownHallModal({
   initialTab = 'POLICY',
   liveConnected = false,
   activeTownId = 'town_1',
-  lastSeq = 0,
-  outboxCount = 0,
   onClose,
   onChangeTaxRate,
   onChangeWinterPolicy,
+  onBuildResidentialCottage,
   onRunElection,
   onDonateRelief,
   onTrainUnit,
@@ -239,6 +252,13 @@ export function TownHallModal({
     : governance.approvalPct;
 
   const canDonateRelief = fishStewQty >= 1 || firewoodQty >= 2;
+  const canBuildCottage = coins >= RESIDENTIAL_COTTAGE_COST_FC;
+
+  const electionWindow = canHoldSummerElection(
+    season,
+    seasonCycleNumber,
+    governance.lastElectionCycle
+  );
 
   return (
     <Modal
@@ -378,6 +398,29 @@ export function TownHallModal({
                         </Pressable>
                       ))}
                     </View>
+                    <View style={styles.sectionCard}>
+                      <Text style={styles.sectionTitle}>
+                        HOUSING & CITIZEN GROWTH ({populationCount}/{populationCap})
+                      </Text>
+                      <Text style={styles.sectionHint}>
+                        Residential Buildings: {residentialCount}. Each new
+                        Citizen Cottage adds +{RESIDENTS_PER_RESIDENTIAL_BUILDING}{' '}
+                        new citizens to your town.
+                      </Text>
+                      <Pressable
+                        disabled={!canBuildCottage}
+                        onPress={onBuildResidentialCottage}
+                        style={[
+                          styles.primaryBtn,
+                          !canBuildCottage && styles.btnDisabled,
+                        ]}
+                      >
+                        <Text style={styles.primaryBtnText}>
+                          Build Citizen Cottage ({RESIDENTIAL_COTTAGE_COST_FC}{' '}
+                          FC → +{RESIDENTS_PER_RESIDENTIAL_BUILDING} Citizens)
+                        </Text>
+                      </Pressable>
+                    </View>
                   </>
                 ) : (
                   <View style={styles.sectionCard}>
@@ -426,18 +469,34 @@ export function TownHallModal({
                     />
                   </View>
                   <Text style={styles.sectionHint}>
-                    Top Challenger: {rivalMeta.name} ({rivalMeta.title})
+                    Current Sole Mayor: {holderMeta.name} · Top Challenger:{' '}
+                    {rivalMeta.name}
                   </Text>
-                  <Pressable onPress={onRunElection} style={styles.primaryBtn}>
+                  <Text style={styles.sectionHint}>
+                    {electionWindow.allowed
+                      ? 'Summer Election polls are open!'
+                      : (electionWindow.reason ??
+                        'Elections are held every Summer.')}
+                  </Text>
+                  <Pressable
+                    disabled={!electionWindow.allowed}
+                    onPress={onRunElection}
+                    style={[
+                      styles.primaryBtn,
+                      !electionWindow.allowed && styles.btnDisabled,
+                    ]}
+                  >
                     <AtlasIcon
                       atlas={iconsAtlas}
                       iconKey="ballotBox"
                       size={20}
                     />
                     <Text style={styles.primaryBtnText}>
-                      {isPlayerMayor
-                        ? 'Hold Town Hall Election Vote'
-                        : 'Trigger Snap Recall Election'}
+                      {electionWindow.allowed
+                        ? 'Hold Summer Election Vote'
+                        : season === 'WINTER'
+                          ? 'Elections Open in Summer'
+                          : 'Next Election Next Summer'}
                     </Text>
                   </Pressable>
                 </View>
@@ -589,9 +648,7 @@ export function TownHallModal({
                 <View style={styles.sectionCard}>
                   <View style={styles.warHeaderRow}>
                     <Text style={styles.sectionTitle}>
-                      {liveConnected
-                        ? `🟢 LIVE WS · ${activeTownId.toUpperCase()} · SEQ #${lastSeq}`
-                        : `🟠 OFFLINE OUTBOX (${outboxCount} QUEUED)`}
+                      {liveConnected ? '🟢 VALLEY NETWORK' : '🟠 OFFLINE'}
                     </Text>
                     <Pressable
                       disabled={isSyncLoading}
@@ -606,9 +663,8 @@ export function TownHallModal({
                     </Pressable>
                   </View>
                   <Text style={styles.sectionHint}>
-                    Account {accountMeta.displayName} · Home{' '}
-                    {accountMeta.homeTownId}. Hop across valleys in 1 frame or
-                    trade escrowed surplus across Winter/Summer towns!
+                    {accountMeta.displayName} · Trade surplus goods with other
+                    valleys or visit neighboring towns.
                   </Text>
                   {syncError !== null && (
                     <Text style={styles.syncWarnText}>{syncError}</Text>
@@ -790,9 +846,7 @@ export function TownHallModal({
                 </View>
 
                 <View style={styles.sectionCard}>
-                  <Text style={styles.sectionTitle}>
-                    VISIT MULTIPLAYER VALLEYS (1-FRAME TOWN HOP)
-                  </Text>
+                  <Text style={styles.sectionTitle}>VISIT OTHER VALLEYS</Text>
                   {directoryTowns.length === 0 ? (
                     <Text style={styles.sectionHint}>
                       Tap Refresh when connected to browse active multiplayer
