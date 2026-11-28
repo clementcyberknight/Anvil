@@ -106,8 +106,9 @@ export function TownSetupScreen() {
           />
           <Text style={styles.title}>Name Your Frontier Town</Text>
           <Text style={styles.subtitle}>
-            Every citizen starts under one roof with unique names, ruthless
-            profiteers, and ambitious challengers eyeing Town Hall.
+            Every citizen arrives with a unique name and an AI-driven life
+            path—from quiet neighbors and Frost Cult devotees to bold traders
+            and Summer challengers.
           </Text>
         </View>
 

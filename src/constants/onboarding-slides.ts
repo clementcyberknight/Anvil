@@ -10,35 +10,35 @@ export interface OnboardingSlide {
 
 export const ONBOARDING_SLIDES: readonly OnboardingSlide[] = [
   {
-    id: 'live-another-life',
-    title: 'Live another life.',
+    id: 'build-living-town',
+    title: 'Build a living\nYeti town.',
     description:
-      'Step into any era as a ruler, founder, or rebel—make bold moves and build a story worth flexing.',
-    image: require('@/assets/yeti/imagescroll_v2_0005_Layer-5.jpg'),
+      'Explore the valley, gather timber and fish, build cottages, and grow a bustling alpine settlement from scratch.',
+    image: require('@/assets/onboarding/slide-1.webp'),
     ctaLabel: 'Continue',
   },
   {
-    id: 'call-the-shots',
-    title: 'Call the shots.',
+    id: 'citizens',
+    title: 'Citizens with\nminds of their own.',
     description:
-      'Strike deals, redraw borders, or take over the city. The world reacts to whatever you decide.',
-    image: require('@/assets/yeti/imagescroll_v2_0006_Layer-4.jpg'),
+      'Every villager has a life path—some want family, faith, or community, while others trade, scheme, or walk right up to talk to you.',
+    image: require('@/assets/onboarding/slide-2.webp'),
     ctaLabel: 'Continue',
   },
   {
-    id: 'endless-stories',
-    title: 'Endless stories\nto explore.',
+    id: 'mayor-and-seasons',
+    title: 'Rule the valley.\nWin every Summer.',
     description:
-      'Jump into worlds created by other players, or dream up your own scenario in seconds.',
-    image: require('@/assets/yeti/imagescroll_v2_0003_Layer-7.jpg'),
+      'Start as sole Mayor, balance taxes and 2× Winter price spikes from the Treasury, and defend your seat when Summer elections arrive.',
+    image: require('@/assets/onboarding/slide-3.webp'),
     ctaLabel: 'Continue',
   },
   {
-    id: 'ready-to-rule',
-    title: 'Your world is\nready to rule.',
+    id: 'ready-to-found',
+    title: 'Your frontier\nawaits.',
     description:
-      'Pick a timeline, make your first move, and see how far your choices can take you.',
-    image: require('@/assets/yeti/lofimeditate_V2final.jpg'),
-    ctaLabel: 'Start Playing',
+      'Trade with neighboring player towns, expand your population cottage by cottage, and shape a world that never stops moving.',
+    image: require('@/assets/onboarding/slide-4.webp'),
+    ctaLabel: 'Name Your Town',
   },
 ];
